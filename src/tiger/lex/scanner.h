@@ -125,7 +125,7 @@ inline std::string handleEscape(const std::string &source) {
       }
     } else if(source[i] == '^') {
       assert(i + 1 <= str_content_len);
-      result_str.push_back(source[i + 1] - 64);
+      result_str.push_back(source[i + 1] - '@');
       ++i;
     } else {
       std::cout << "source: " << source << std::endl;
