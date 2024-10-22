@@ -109,7 +109,9 @@
 
 /* comment */
 "/*" { adjust(); begin(StartCondition_::COMMENT); }
-<COMMENT>"*/" { adjust(); begin(StartCondition_::INITIAL); }
+<COMMENT> "/*" { adjust(); ++ comment_level_; } 
+<COMMENT> "*/" { adjust(); if(comment_level_ == 1) { begin(StartCondition_::INITIAL); }  else { -- comment_level_; }}
+<COMMENT> \n {adjust(); errormsg_->Newline();}
 <COMMENT>. { adjust(); }
 
 /* identifier */
@@ -121,7 +123,8 @@
 /* string literal */
 /* NOTE: when `more()` is called, there's no need to call `adjust()` */
 \" { more(); begin(StartCondition_::STR); }
-<STR>\" { adjust(); begin(StartCondition_::INITIAL); return Parser::STRING; }
+<STR>\" { adjust(); begin(StartCondition_::INITIAL); setMatched(handleEscape(matched())); return Parser::STRING; }
+<STR>\n { more(); errormsg_->Newline(); }
 <STR>\\.|.  { more(); }
 
  /*
