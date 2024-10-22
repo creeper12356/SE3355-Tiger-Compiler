@@ -61,7 +61,6 @@
   *   Parser::TYPE
   */
 
-
  /* TODO: Put your lab2 code here */
  /* reserved words */
 "while" { adjust(); return Parser::WHILE; }
@@ -112,6 +111,7 @@
 <COMMENT> "/*" { adjust(); ++ comment_level_; } 
 <COMMENT> "*/" { adjust(); if(comment_level_ == 1) { begin(StartCondition_::INITIAL); }  else { -- comment_level_; }}
 <COMMENT> \n {adjust(); errormsg_->Newline();}
+<COMMENT> <<EOF>> {adjust(); errormsg_->Error(errormsg_->tok_pos_, "unexpected end of file");}
 <COMMENT>. { adjust(); }
 
 /* identifier */
@@ -125,6 +125,7 @@
 \" { more(); begin(StartCondition_::STR); }
 <STR>\" { adjust(); begin(StartCondition_::INITIAL); setMatched(handleEscape(matched())); return Parser::STRING; }
 <STR>\n { more(); errormsg_->Newline(); }
+<STR> <<EOF>> {adjust(); errormsg_->Error(errormsg_->tok_pos_, "unexpected end of file");}
 <STR>\\.|.  { more(); }
 
  /*
@@ -134,5 +135,7 @@
 [ \t]+ {adjust();}
 \n {adjust(); errormsg_->Newline();}
 
+
  /* illegal input */
 . {adjust(); errormsg_->Error(errormsg_->tok_pos_, "illegal token");}
+
