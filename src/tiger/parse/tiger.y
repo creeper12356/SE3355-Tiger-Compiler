@@ -33,14 +33,20 @@
 %token
   COMMA COLON SEMICOLON LPAREN RPAREN LBRACK RBRACK
   LBRACE RBRACE DOT
-  PLUS MINUS TIMES DIVIDE EQ NEQ LT LE GT GE
-  AND OR ASSIGN
+  ASSIGN
   ARRAY IF THEN ELSE WHILE FOR TO DO LET IN END OF
   BREAK NIL
   FUNCTION VAR TYPE
 
  /* token priority */
  /* TODO: Put your lab3 code here */
+
+%left OR
+%left AND
+%nonassoc EQ NEQ LT LE GT GE
+%left PLUS MINUS
+%left TIMES DIVIDE
+%left UMINUS
 
 %type <exp> exp expseq
 %type <explist> actuals nonemptyactuals sequencing sequencing_exps
@@ -82,7 +88,7 @@ tyfields_nonempty: tyfield  {$$ = new absyn::FieldList($1);}
   |  tyfield COMMA tyfields_nonempty  {$$ = $3; $$->Prepend($1);}
   ;
 tyfields: tyfields_nonempty  {$$ = $1;}
-  |  /* empty */  {$$ = nullptr;}
+  |  /* empty */  {$$ = new absyn::FieldList{};}
   ;
 ty: ID  {$$ = new absyn::NameTy(scanner_.GetTokPos(), $1);}
   |  LBRACE tyfields RBRACE  {$$ = new absyn::RecordTy(scanner_.GetTokPos(), $2);}
@@ -137,7 +143,7 @@ exp: lvalue  {$$ = new absyn::VarExp(scanner_.GetTokPos(), $1);}
 
   |  STRING  {$$ = new absyn::StringExp(scanner_.GetTokPos(), $1);}
 
-  |  MINUS exp  {$$ = new absyn::OpExp(scanner_.GetTokPos(), absyn::Oper::MINUS_OP, nullptr, $2);}
+  |  MINUS exp %prec UMINUS {$$ = new absyn::OpExp(scanner_.GetTokPos(), absyn::Oper::MINUS_OP, new absyn::IntExp(scanner_.GetTokPos(), 0), $2);}
 
   |  ID LPAREN actuals RPAREN  {$$ = new absyn::CallExp(scanner_.GetTokPos(), $1, $3);}
 
@@ -156,6 +162,11 @@ exp: lvalue  {$$ = new absyn::VarExp(scanner_.GetTokPos(), $1);}
   |  exp AND exp  {$$ = new absyn::OpExp(scanner_.GetTokPos(), absyn::Oper::AND_OP, $1, $3);}
   |  exp OR exp  {$$ = new absyn::OpExp(scanner_.GetTokPos(), absyn::Oper::OR_OP, $1, $3);}
 
+  |  ID LBRACE rec RBRACE  {$$ = new absyn::RecordExp(scanner_.GetTokPos(), $1, $3);}
+  |  ID LBRACK exp RBRACK OF exp  {$$ = new absyn::ArrayExp(scanner_.GetTokPos(), $1, $3, $6);}
+
+  |  lvalue ASSIGN exp  {$$ = new absyn::AssignExp(scanner_.GetTokPos(), $1, $3);}
+
   |  IF exp THEN exp {$$ = new absyn::IfExp(scanner_.GetTokPos(), $2, $4, nullptr);}
   |  IF exp THEN exp ELSE exp  {$$ = new absyn::IfExp(scanner_.GetTokPos(), $2, $4, $6);}
   |  WHILE exp DO exp  {$$ = new absyn::WhileExp(scanner_.GetTokPos(), $2, $4);}
@@ -169,7 +180,7 @@ expseq:  sequencing_exps {$$ = new absyn::SeqExp(scanner_.GetTokPos(), $1);}
   ;
 
 actuals:  nonemptyactuals  {$$ = $1;}
-  |  /* empty */  {$$ = nullptr;}
+  |  /* empty */  {$$ = new absyn::ExpList{};}
   ;
 nonemptyactuals:  exp  {$$ = new absyn::ExpList($1);}
   |  exp COMMA nonemptyactuals {$$ = $3; $$->Prepend($1);}
@@ -180,4 +191,3 @@ sequencing: LPAREN sequencing_exps RPAREN  {$$ = $2;}
 sequencing_exps: exp  {$$ = new absyn::ExpList($1);}
   |  exp SEMICOLON sequencing_exps  {$$ = $3; $$->Prepend($1);}
   ;
- /* TODO: Put your lab3 code here */
