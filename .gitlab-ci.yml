@@ -1,0 +1,7 @@
+test_lab5-part0:
+  image: ipadsse302/tigerlabs_env:2.0.0
+  tags:
+    - r743
+  stage: test
+  script:
+    - make
