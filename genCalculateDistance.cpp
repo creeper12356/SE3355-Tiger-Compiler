@@ -81,10 +81,98 @@ void buildCaculateDistance(std::shared_ptr<llvm::Module> ir_module)
     llvm::IRBuilder<> builder(ir_module->getContext());
 
     llvm::Function *caculateDistance = addFunction(ir_module, "caculateDistance", llvm::FunctionType::get(llvm::Type::getVoidTy(ir_module->getContext()), false));
+    
     llvm::BasicBlock *entry = llvm::BasicBlock::Create(ir_module->getContext(), "", caculateDistance);
-    builder.SetInsertPoint(entry);
+    llvm::BasicBlock *label3 = llvm::BasicBlock::Create(ir_module->getContext(), "", caculateDistance);
+    llvm::BasicBlock *label6 = llvm::BasicBlock::Create(ir_module->getContext(), "", caculateDistance);
+    llvm::BasicBlock *label16 = llvm::BasicBlock::Create(ir_module->getContext(), "", caculateDistance);
+    llvm::BasicBlock *label18 = llvm::BasicBlock::Create(ir_module->getContext(), "", caculateDistance);
+    llvm::BasicBlock *label20 = llvm::BasicBlock::Create(ir_module->getContext(), "", caculateDistance);
+    llvm::BasicBlock *label22 = llvm::BasicBlock::Create(ir_module->getContext(), "", caculateDistance);
+    llvm::BasicBlock *label25 = llvm::BasicBlock::Create(ir_module->getContext(), "", caculateDistance);
 
-    // TODO
+    auto gDist = global_values["dist"];
+    auto gMinDistance = global_values["minDistance"];
+    auto sEdge_s = struct_types["struct.Edge_s"];
+
+    builder.SetInsertPoint(entry);
+    auto alloca1 = builder.CreateAlloca(builder.getInt32Ty());
+    alloca1->setAlignment(llvm::Align(4));
+    auto alloca2 = builder.CreateAlloca(builder.getInt64Ty());
+    alloca2->setAlignment(llvm::Align(8));
+    builder.CreateStore(builder.getInt32(0), alloca1)
+            ->setAlignment(llvm::Align(4));
+    builder.CreateBr(label3);
+
+    builder.SetInsertPoint(label3);
+    auto load4 = builder.CreateLoad(builder.getInt32Ty(), alloca1);
+    load4->setAlignment(llvm::Align(4));
+    auto cmp5 = builder.CreateCmp(llvm::CmpInst::Predicate::ICMP_SLT, load4, builder.getInt32(3));
+    builder.CreateCondBr(cmp5, label6, label25);
+
+    builder.SetInsertPoint(label6);
+    auto load7 = builder.CreateLoad(builder.getInt32Ty(), alloca1);
+    auto sext8 = builder.CreateSExt(load7, builder.getInt64Ty());
+
+    std::cout << "gDist dump: " << std::endl;
+    gDist->getType()->dump();
+    
+    auto gep9 = builder.CreateGEP(
+        gDist->getType(),
+        gDist,
+        {builder.getInt64(0), sext8}
+    );
+
+    auto load10 = builder.CreateLoad(llvm::PointerType::get(sEdge_s, 0), gep9);
+    load10->setAlignment(llvm::Align(8));
+
+    std::cout << "load10 dump: " << std::endl;
+    load10->getType()->dump();
+    
+    auto gep11 = builder.CreateGEP(
+        sEdge_s,
+        load10,
+        {builder.getInt32(0), builder.getInt32(2)}
+    );
+    auto load12 = builder.CreateLoad(builder.getInt64Ty(), gep11);
+    load12->setAlignment(llvm::Align(4));
+    builder.CreateStore(load12, gep11)
+            ->setAlignment(llvm::Align(4));
+    auto load13 = builder.CreateLoad(builder.getInt64Ty(), gep11);
+    load13->setAlignment(llvm::Align(4));
+    auto load14 = builder.CreateLoad(builder.getInt64Ty(), gMinDistance);
+    load14->setAlignment(llvm::Align(4));
+    auto cmp15 = builder.CreateCmp(llvm::CmpInst::Predicate::ICMP_SLT, load13, load14);
+    builder.CreateCondBr(cmp15, label16, label18);
+
+    builder.SetInsertPoint(label16);
+    auto load17 = builder.CreateLoad(builder.getInt64Ty(), alloca2);
+    load17->setAlignment(llvm::Align(4));
+    builder.CreateBr(label20);
+
+    builder.SetInsertPoint(label18);
+    auto load19 = builder.CreateLoad(builder.getInt64Ty(), gMinDistance);
+    load19->setAlignment(llvm::Align(4));
+    builder.CreateBr(label20);
+
+    builder.SetInsertPoint(label20);
+    auto phi21 = builder.CreatePHI(builder.getInt64Ty(), 2);
+    phi21->addIncoming(load17, label16);
+    phi21->addIncoming(load19, label18);
+    builder.CreateStore(phi21, gMinDistance)
+            ->setAlignment(llvm::Align(4));
+    builder.CreateBr(label22);
+
+    builder.SetInsertPoint(label22);
+    auto load23 = builder.CreateLoad(builder.getInt32Ty(), alloca1);
+    load23->setAlignment(llvm::Align(4));
+    auto add24 = builder.CreateAdd(load23, builder.getInt32(1), "", false, true);
+    builder.CreateStore(add24, alloca1)
+            ->setAlignment(llvm::Align(4));
+    builder.CreateBr(label3);
+
+    builder.SetInsertPoint(label25);
+    builder.CreateRetVoid();
 }
 
 void buildMain(std::shared_ptr<llvm::Module> ir_module)
@@ -94,8 +182,84 @@ void buildMain(std::shared_ptr<llvm::Module> ir_module)
     llvm::Function *main = addFunction(ir_module, "main", llvm::FunctionType::get(llvm::Type::getInt32Ty(ir_module->getContext()), false));
     llvm::BasicBlock *entry = llvm::BasicBlock::Create(ir_module->getContext(), "", main);
     builder.SetInsertPoint(entry);
-    
-    // TODO
+
+    auto sEdge_s = struct_types["struct.Edge_s"];
+
+    auto alloca1 = builder.CreateAlloca(builder.getInt32Ty());
+    alloca1->setAlignment(llvm::Align(4));
+    auto alloca2 = builder.CreateAlloca(sEdge_s);
+    alloca2->setAlignment(llvm::Align(8));
+    builder.CreateStore(builder.getInt32(0), alloca1)
+            ->setAlignment(llvm::Align(4));
+    auto gep3 = builder.CreateGEP(
+        sEdge_s,
+        alloca2,
+        {builder.getInt32(0), builder.getInt32(0)}
+    );
+    //   %4 = call i32 (i8*, ...) @__isoc99_scanf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.str, i64 0, i64 0), i64* %3)
+    auto call4 = builder.CreateCall(
+        functions["__isoc99_scanf"],
+        {
+            builder.CreateGEP(
+                global_values[".str"]->getType(),
+                global_values[".str"],
+                {builder.getInt64(0), builder.getInt64(0)}
+            ),
+            alloca1
+        }
+    );
+    auto gep5 = builder.CreateGEP(
+        sEdge_s,
+        alloca2,
+        {builder.getInt32(0), builder.getInt32(2)}
+    );
+    auto load6 = builder.CreateLoad(builder.getInt64Ty(), gep5);
+    load6->setAlignment(llvm::Align(4));
+    auto trunc7 = builder.CreateTrunc(load6, builder.getInt32Ty());
+    //   store i32 %7, i32* getelementptr inbounds ([3 x [3 x i32]], [3 x [3 x i32]]* @allDist, i64 0, i64 0, i64 0), align 4
+    builder.CreateStore(trunc7, builder.CreateGEP(
+        global_values["allDist"]->getType(),
+        global_values["allDist"],
+        {builder.getInt64(0), builder.getInt64(0), builder.getInt64(0)}
+    )) ->setAlignment(llvm::Align(4));
+    builder.CreateCall(
+        functions["caculateDistance"],
+        {}
+    );
+    auto load8 = builder.CreateLoad(builder.getInt64Ty(), global_values["minDistance"]);
+    load8->setAlignment(llvm::Align(4));
+    auto gep9 = builder.CreateGEP(
+        sEdge_s,
+        alloca2,
+        {builder.getInt32(0), builder.getInt32(2)}
+    );
+    auto load10 = builder.CreateLoad(builder.getInt64Ty(), gep9);
+    load10->setAlignment(llvm::Align(4));
+    auto add11 = builder.CreateAdd(load10, builder.getInt64(5), "", false, true);
+    auto add12 = builder.CreateAdd(add11, builder.getInt64(10), "", false, true);
+    auto load13 = builder.CreateLoad(
+        builder.getInt32Ty(),
+        builder.CreateGEP(
+            global_values["allDist"]->getType(),
+            global_values["allDist"],
+            {builder.getInt64(0), builder.getInt64(0), builder.getInt64(0)}
+        )
+    );
+    load13->setAlignment(llvm::Align(4));
+    auto call14 = builder.CreateCall(
+        functions["printf"],
+        {
+            builder.CreateGEP(
+                global_values[".str1"]->getType(),
+                global_values[".str1"],
+                {builder.getInt64(0), builder.getInt64(0)}
+            ),
+            load8,
+            add12,
+            load13
+        }
+    );
+    builder.CreateRet(builder.getInt32(0));
 }
 
 void buildFunction(std::shared_ptr<llvm::Module> ir_module)
