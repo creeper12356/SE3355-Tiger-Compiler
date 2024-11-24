@@ -113,12 +113,9 @@ void buildCaculateDistance(std::shared_ptr<llvm::Module> ir_module)
     builder.SetInsertPoint(label6);
     auto load7 = builder.CreateLoad(builder.getInt32Ty(), alloca1);
     auto sext8 = builder.CreateSExt(load7, builder.getInt64Ty());
-
-    std::cout << "gDist dump: " << std::endl;
-    gDist->getType()->dump();
     
     auto gep9 = builder.CreateGEP(
-        gDist->getType(),
+        gDist->getType()->getPointerElementType(),
         gDist,
         {builder.getInt64(0), sext8}
     );
@@ -126,8 +123,6 @@ void buildCaculateDistance(std::shared_ptr<llvm::Module> ir_module)
     auto load10 = builder.CreateLoad(llvm::PointerType::get(sEdge_s, 0), gep9);
     load10->setAlignment(llvm::Align(8));
 
-    std::cout << "load10 dump: " << std::endl;
-    load10->getType()->dump();
     
     auto gep11 = builder.CreateGEP(
         sEdge_s,
@@ -136,9 +131,9 @@ void buildCaculateDistance(std::shared_ptr<llvm::Module> ir_module)
     );
     auto load12 = builder.CreateLoad(builder.getInt64Ty(), gep11);
     load12->setAlignment(llvm::Align(4));
-    builder.CreateStore(load12, gep11)
+    builder.CreateStore(load12, alloca2)
             ->setAlignment(llvm::Align(4));
-    auto load13 = builder.CreateLoad(builder.getInt64Ty(), gep11);
+    auto load13 = builder.CreateLoad(builder.getInt64Ty(), alloca2);
     load13->setAlignment(llvm::Align(4));
     auto load14 = builder.CreateLoad(builder.getInt64Ty(), gMinDistance);
     load14->setAlignment(llvm::Align(4));
@@ -194,20 +189,29 @@ void buildMain(std::shared_ptr<llvm::Module> ir_module)
     auto gep3 = builder.CreateGEP(
         sEdge_s,
         alloca2,
-        {builder.getInt32(0), builder.getInt32(0)}
+        {builder.getInt32(0), builder.getInt32(2)}
     );
     //   %4 = call i32 (i8*, ...) @__isoc99_scanf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.str, i64 0, i64 0), i64* %3)
     auto call4 = builder.CreateCall(
         functions["__isoc99_scanf"],
         {
             builder.CreateGEP(
-                global_values[".str"]->getType(),
+                global_values[".str"]->getType()->getPointerElementType(),
                 global_values[".str"],
                 {builder.getInt64(0), builder.getInt64(0)}
             ),
-            alloca1
+            gep3
         }
     );
+    builder.CreateStore(
+        alloca2,
+        builder.CreateGEP(
+            global_values["dist"]->getType()->getPointerElementType(),
+            global_values["dist"],
+            {builder.getInt64(0), builder.getInt64(2)}
+        )
+    )
+    ->setAlignment(llvm::Align(8));
     auto gep5 = builder.CreateGEP(
         sEdge_s,
         alloca2,
@@ -218,7 +222,7 @@ void buildMain(std::shared_ptr<llvm::Module> ir_module)
     auto trunc7 = builder.CreateTrunc(load6, builder.getInt32Ty());
     //   store i32 %7, i32* getelementptr inbounds ([3 x [3 x i32]], [3 x [3 x i32]]* @allDist, i64 0, i64 0, i64 0), align 4
     builder.CreateStore(trunc7, builder.CreateGEP(
-        global_values["allDist"]->getType(),
+        global_values["allDist"]->getType()->getPointerElementType(),
         global_values["allDist"],
         {builder.getInt64(0), builder.getInt64(0), builder.getInt64(0)}
     )) ->setAlignment(llvm::Align(4));
@@ -240,7 +244,7 @@ void buildMain(std::shared_ptr<llvm::Module> ir_module)
     auto load13 = builder.CreateLoad(
         builder.getInt32Ty(),
         builder.CreateGEP(
-            global_values["allDist"]->getType(),
+            global_values["allDist"]->getType()->getPointerElementType(),
             global_values["allDist"],
             {builder.getInt64(0), builder.getInt64(0), builder.getInt64(0)}
         )
@@ -250,7 +254,7 @@ void buildMain(std::shared_ptr<llvm::Module> ir_module)
         functions["printf"],
         {
             builder.CreateGEP(
-                global_values[".str1"]->getType(),
+                global_values[".str1"]->getType()->getPointerElementType(),
                 global_values[".str1"],
                 {builder.getInt64(0), builder.getInt64(0)}
             ),
