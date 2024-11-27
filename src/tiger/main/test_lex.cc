@@ -67,6 +67,8 @@ int main(int argc, char **argv) {
     switch (tok) {
     case Parser::ID:
     case Parser::STRING:
+      // %10s 字符串，最小宽度为10个字节
+      // %4d 整数，最小宽度为4个字符
       printf("%10s %4d %s\n", tokname[tok].data(), scanner.GetTokPos(),
              !scanner.matched().empty() ? scanner.matched().data() : "(null)");
       break;
