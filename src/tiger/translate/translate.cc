@@ -90,6 +90,8 @@ void ProgTr::Translate() {
       "tigermain_framesize_global"
   );
 
+  frame_info.push_back(std::make_pair("tigermain", main_level_->frame_));
+
   auto tigermain_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "tigermain", main_func);
   ir_builder->SetInsertPoint(tigermain_bb);
   auto local_framesize_val = ir_builder->CreateLoad(
@@ -157,6 +159,7 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       new_frame,
       level
     );
+    frame_info.push_back(std::make_pair(func_dec->name_->Name(), new_frame));
 
     // 创建framesize_global变量，初始化为0
     // 并初始化stack pointer
