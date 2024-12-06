@@ -87,6 +87,12 @@ public:
       : offset(offset), parent_frame(parent) {}
 
   /* TODO: Put your lab5-part1 code here */
+  llvm::Value *ToLLVMVal(llvm::Value *frame_addr_ptr) override {
+    return ir_builder->CreateAdd(
+      frame_addr_ptr,
+      llvm::ConstantInt::get(ir_builder->getInt64Ty(), offset)
+    );
+  }
 };
 
 
@@ -115,7 +121,14 @@ public:
 };
 
 frame::Frame *NewFrame(temp::Label *name, std::list<bool> formals) {
-  /* TODO: Put your lab5-part1 code here */
+  auto formal_access_list = new std::list<frame::Access *>();
+  auto new_frame = new X64Frame(name, formal_access_list);
+  auto formal_cnt = formals.size();
+  for(size_t i = 0;i < formal_cnt; ++i) {
+    // NOTE: 忽略逃逸分析结果，全部假定通过栈传参
+    formal_access_list->push_back(new InFrameAccess((i + 1) * 8, new_frame));
+  }
+  return new_frame;
 }
 
 

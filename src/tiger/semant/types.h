@@ -45,10 +45,14 @@ private:
   static IntTy intty_;
 };
 
+  // LLVM string: {i32, i8*}
 class StringTy : public Ty {
 public:
   static StringTy *Instance() { return &stringty_; }
 
+  /**
+   * @brief 生成关于String的LLVM定义
+   */
   static void InitStringLLVMType();
   llvm::Type *GetLLVMType() override;
   static llvm::Value *CreateGlobalStringStructPtr(std::string str);
@@ -81,7 +85,20 @@ private:
 class ArrayTy : public Ty {
 public:
   Ty *ty_;
+
+  /**
+   * @brief 指针类型
+   * 
+   * @return llvm::Type* 
+   */
   llvm::Type *GetLLVMType() override;
+
+  /**
+   * @brief 数组类型
+   * 
+   * @param len 
+   * @return llvm::Type* 
+   */
   llvm::Type *GetLLVMTypeWithLen(int len);
   explicit ArrayTy(Ty *ty) : ty_(ty) {}
 };

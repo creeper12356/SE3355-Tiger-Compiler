@@ -52,6 +52,7 @@ void StringTy::InitStringLLVMType() {
 
 llvm::Type *StringTy::GetLLVMType() {
   if (string_llvm_type_ == nullptr) {
+    // 未生成过String的LLVM定义，初始化
     InitStringLLVMType();
   }
   return string_ptr_llvm_type_;
