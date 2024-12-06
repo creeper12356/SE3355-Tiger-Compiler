@@ -75,10 +75,10 @@ public:
   /**
    * @brief 将Access转换为LLVM Value
    * 
-   * @param frame_addr_ptr 栈帧基地址
-   * @return llvm::Value* 
+   * @param frame_addr_ptr 栈指针
+   * @return llvm::Value* int64类型的地址，需要手动转为指针类型
    */
-  virtual llvm::Value *ToLLVMVal(llvm::Value *frame_addr_ptr) = 0;
+  virtual llvm::Value *ToLLVMVal(llvm::Value *sp) = 0;
 
 };
 

@@ -90,9 +90,13 @@ void ProgTr::Translate() {
       "tigermain_framesize_global"
   );
 
-  auto main_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "entry", main_func);
-  ir_builder->SetInsertPoint(main_bb);
-  main_level_->set_sp(ir_builder->CreateSub(main_func->arg_begin(), main_level_->frame_->framesize_global));
+  auto tigermain_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "tigermain", main_func);
+  ir_builder->SetInsertPoint(tigermain_bb);
+  auto local_framesize_val = ir_builder->CreateLoad(
+    ir_builder->getInt64Ty(),
+    main_level_->frame_->framesize_global
+  );
+  main_level_->set_sp(ir_builder->CreateSub(main_func->arg_begin(), local_framesize_val));
   absyn_tree_->Translate(venv_.get(), tenv_.get(), main_level_.get(),
                          errormsg_.get());
   
@@ -234,7 +238,12 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     func_stack.push(func);
     ir_builder->SetInsertPoint(new_bb);
 
-    new_level->set_sp(ir_builder->CreateSub(level->get_sp(), new_frame->framesize_global));
+    auto local_framesize_val = ir_builder->CreateLoad(
+      ir_builder->getInt64Ty(), 
+      new_frame->framesize_global, 
+      func_dec->name_->Name() + "_local_framesize"
+    );
+    new_level->set_sp(ir_builder->CreateSub(func->arg_begin(), local_framesize_val, func_dec->name_->Name() + "_sp"));
 
     
     // 回填形式参数
@@ -246,7 +255,12 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
       while(arg_iter != func->arg_end()) {
         auto arg_val = &*arg_iter;
-        ir_builder->CreateStore(arg_val, (*formal_iter)->ToLLVMVal(new_level->get_sp()));
+        auto formal_val = (*formal_iter)->ToLLVMVal(new_level->get_sp());
+        auto formal_ptr = ir_builder->CreateIntToPtr(
+          formal_val,
+          llvm::PointerType::get(arg_val->getType(), 0)
+        );
+        ir_builder->CreateStore(arg_val, formal_ptr);
         ++ arg_iter;
         ++ formal_iter;
       }
@@ -287,7 +301,12 @@ void VarDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv, tr::Level *level,
 
   // 初始化变量
   llvm::Value *val = init_val_ty->val_;
-  ir_builder->CreateStore(val, access->access_->ToLLVMVal(level->get_sp()));
+  auto access_val = access->access_->ToLLVMVal(level->get_sp());
+  auto access_ptr = ir_builder->CreateIntToPtr(
+    access_val,
+    llvm::PointerType::get(init_val_ty->ty_->GetLLVMType(), 0)
+  );
+  ir_builder->CreateStore(val, access_ptr);
 }
 
 type::Ty *NameTy::Translate(env::TEnvPtr tenv, err::ErrorMsg *errormsg) const {
@@ -355,6 +374,11 @@ tr::ValAndTy *SimpleVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     }
 
     val = var_entry->access_->access_->ToLLVMVal(val);
+    val = ir_builder->CreateIntToPtr(
+      val,
+      llvm::PointerType::get(var_entry->ty_->GetLLVMType(), 0),
+      sym_->Name()
+    );
     return new tr::ValAndTy(val, var_entry->ty_->ActualTy());
   }
 }
@@ -420,7 +444,7 @@ tr::ValAndTy *NilExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 tr::ValAndTy *IntExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                 tr::Level *level,
                                 err::ErrorMsg *errormsg) const {
-  return new tr::ValAndTy(ir_builder->getInt64(val_), type::IntTy::Instance());
+  return new tr::ValAndTy(ir_builder->getInt32(val_), type::IntTy::Instance());
 }
 
 tr::ValAndTy *StringExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,

@@ -86,12 +86,20 @@ public:
   explicit InFrameAccess(int offset, frame::Frame *parent)
       : offset(offset), parent_frame(parent) {}
 
-  /* TODO: Put your lab5-part1 code here */
-  llvm::Value *ToLLVMVal(llvm::Value *frame_addr_ptr) override {
-    return ir_builder->CreateAdd(
-      frame_addr_ptr,
+  llvm::Value *ToLLVMVal(llvm::Value *sp) override {
+    auto local_framesize_val = ir_builder->CreateLoad(
+      ir_builder->getInt64Ty(),
+      parent_frame->framesize_global
+    );
+    auto add_val_1 = ir_builder->CreateAdd(
+      local_framesize_val,
       llvm::ConstantInt::get(ir_builder->getInt64Ty(), offset)
     );
+    auto add_val_2 = ir_builder->CreateAdd(
+      sp,
+      add_val_1
+    );
+    return add_val_2;
   }
 };
 
