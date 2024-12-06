@@ -68,8 +68,41 @@ void ProgTr::OutputIR(std::string_view filename) {
 void ProgTr::Translate() {
   FillBaseVEnv();
   FillBaseTEnv();
+  auto main_func = llvm::Function::Create(
+      llvm::FunctionType::get(
+        llvm::Type::getInt32Ty(ir_builder->getContext()),
+        {ir_builder->getInt64Ty(), ir_builder->getInt64Ty()},
+        false
+      ),
+      llvm::Function::ExternalLinkage, 
+      "tigermain", 
+      ir_module
+  );
+  func_stack.push(main_func);
+
+  // 初始化main函数的framesize_global变量
+  main_level_->frame_->framesize_global = new llvm::GlobalVariable(
+      *ir_module, 
+      llvm::Type::getInt64Ty(ir_builder->getContext()),
+      true,
+      llvm::GlobalValue::ExternalLinkage,
+      llvm::ConstantInt::get(llvm::Type::getInt64Ty(ir_builder->getContext()), 0),
+      "tigermain_framesize_global"
+  );
+
+  auto main_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "entry", main_func);
+  ir_builder->SetInsertPoint(main_bb);
+  main_level_->set_sp(ir_builder->CreateSub(main_func->arg_begin(), main_level_->frame_->framesize_global));
   absyn_tree_->Translate(venv_.get(), tenv_.get(), main_level_.get(),
                          errormsg_.get());
+  
+  main_level_->frame_->framesize_global->setInitializer(
+    llvm::ConstantInt::get(
+      ir_builder->getInt64Ty(),
+      getActualFramesize(main_level_.get())
+    )
+  );
+  ir_builder->CreateRet(ir_builder->getInt32(0));
 }
 
 } // namespace tr
@@ -152,7 +185,9 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
         params,
         false
       ),
-      llvm::Function::ExternalLinkage
+      llvm::Function::ExternalLinkage,
+      func_dec->name_->Name(),
+      ir_module
     );
 
     // 将函数加入环境venv,
@@ -168,6 +203,28 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       )
     );
 
+    // 将形参加入环境venv
+    {
+      auto new_frame_formals = new_frame->Formals();
+      auto formal_iter = new_frame_formals->begin();
+      auto func_dec_params_iter = func_dec_params.begin();
+      // 跳过static link
+      ++ formal_iter;
+      while(formal_iter != new_frame_formals->end()) {
+        // NOTE: param_ty在上面已经获取过了
+        auto param_ty = tenv->Look((*func_dec_params_iter)->typ_);
+        venv->Enter(
+          (*func_dec_params_iter)->name_,
+          new env::VarEntry(
+            new tr::Access(new_level, *formal_iter), 
+            param_ty)
+        );
+
+        ++ func_dec_params_iter;
+        ++ formal_iter;
+      }
+    }
+
     // 创建基本块
     auto new_bb = llvm::BasicBlock::Create(
       ir_builder->getContext(),
@@ -181,16 +238,18 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
     
     // 回填形式参数
-    auto arg_iter = func->arg_begin();
-    // 跳过stack pointer
-    ++ arg_iter;
-    auto formal_iter = new_frame->Formals()->begin();
-
-    while(arg_iter != func->arg_end()) {
-      auto arg_val = &*arg_iter;
-      ir_builder->CreateStore(arg_val, (*formal_iter)->ToLLVMVal(new_level->get_sp()));
+    {
+      auto arg_iter = func->arg_begin();
+      // 跳过stack pointer
       ++ arg_iter;
-      ++ formal_iter;
+      auto formal_iter = new_frame->Formals()->begin();
+
+      while(arg_iter != func->arg_end()) {
+        auto arg_val = &*arg_iter;
+        ir_builder->CreateStore(arg_val, (*formal_iter)->ToLLVMVal(new_level->get_sp()));
+        ++ arg_iter;
+        ++ formal_iter;
+      }
     }
 
     // 生成函数体，
