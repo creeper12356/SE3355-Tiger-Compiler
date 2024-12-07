@@ -70,6 +70,45 @@ void ProgTr::OutputIR(std::string_view filename) {
 void ProgTr::Translate() {
   FillBaseVEnv();
   FillBaseTEnv();
+
+  // 创建alloc_record, init_array, string_equal函数
+  alloc_record = llvm::Function::Create(
+      llvm::FunctionType::get(
+        ir_builder->getInt64Ty(),
+        {ir_builder->getInt32Ty()},
+        false
+      ),
+      llvm::Function::ExternalLinkage, 
+      "alloc_record", 
+      ir_module
+  );
+
+  init_array = llvm::Function::Create(
+    llvm::FunctionType::get(
+      ir_builder->getInt64Ty(),
+      {ir_builder->getInt32Ty(), ir_builder->getInt64Ty()},
+      false
+    ),
+    llvm::Function::ExternalLinkage,
+    "init_array",
+    ir_module
+  );
+
+  string_equal = llvm::Function::Create(
+    llvm::FunctionType::get(
+      ir_builder->getInt1Ty(),
+      {
+        llvm::PointerType::get(type::StringTy::Instance()->GetLLVMType(), 0),
+        llvm::PointerType::get(type::StringTy::Instance()->GetLLVMType(), 0)
+      },
+      false
+    ),
+    llvm::Function::ExternalLinkage,
+    "string_equal",
+    ir_module
+  );
+
+
   auto main_func = llvm::Function::Create(
       llvm::FunctionType::get(
         llvm::Type::getInt32Ty(ir_builder->getContext()),
@@ -294,12 +333,14 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
 void VarDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv, tr::Level *level,
                        err::ErrorMsg *errormsg) const {
-  auto ty_entry = tenv->Look(this->typ_);
+  // NOTE: 由于可能存在typ_为nullptr的情况，
+  // 且语义分析已经检查过左右类型是否匹配，
+  // 因此此处直接获取init_的类型即可
   auto init_val_ty = init_->Translate(venv, tenv, level, errormsg);
 
   // 将变量加入环境venv
   auto access = new tr::Access(level, level->frame_->AllocLocal(escape_));
-  venv->Enter(var_, new env::VarEntry(access, ty_entry));
+  venv->Enter(var_, new env::VarEntry(access, init_val_ty->ty_));
 
   // 初始化变量
   llvm::Value *val = init_val_ty->val_;
@@ -405,9 +446,9 @@ tr::ValAndTy *FieldVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   assert(field_ty);
 
   llvm::Value *val = ir_builder->CreateGEP(
-    field_ty->GetLLVMType(),
+    var_val_ty->ty_->GetLLVMType()->getPointerElementType(),
     ir_builder->CreateLoad(var_val_ty->ty_->GetLLVMType(), var_val_ty->val_),
-    ir_builder->getInt32(index)
+    {ir_builder->getInt32(0), ir_builder->getInt32(index)}
   );
 
   return new tr::ValAndTy(val, field_ty, ir_builder->GetInsertBlock());
@@ -585,8 +626,25 @@ tr::ValAndTy *RecordExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   auto &efield_list = fields_->GetList();
   auto record_ty = tenv->Look(typ_);
   assert(record_ty);
-  auto record_ptr = ir_builder->CreateCall(alloc_record, {ir_builder->getInt64(efield_list.size() * 8)});
+  auto record_ptr_i64 = ir_builder->CreateCall(alloc_record, {ir_builder->getInt32(efield_list.size() * 8)});
+  auto record_ptr = ir_builder->CreateIntToPtr(
+    record_ptr_i64,
+    record_ty->GetLLVMType()
+  );
 
+  // 初始化记录字段
+  int index = 0;
+  for(auto &efield: efield_list) {
+    auto record_field_ptr = ir_builder->CreateGEP(
+      record_ty->GetLLVMType()->getPointerElementType(), 
+      record_ptr, 
+      {ir_builder->getInt32(0), ir_builder->getInt32(index)}
+    );
+    auto record_field_exp_val = efield->exp_->Translate(venv, tenv, level, errormsg)->val_;
+
+    ir_builder->CreateStore(record_field_exp_val, record_field_ptr);
+    ++ index;
+  }
   return new tr::ValAndTy(record_ptr, record_ty, ir_builder->GetInsertBlock());
 }
 
