@@ -98,8 +98,8 @@ void ProgTr::Translate() {
     llvm::FunctionType::get(
       ir_builder->getInt1Ty(),
       {
-        llvm::PointerType::get(type::StringTy::Instance()->GetLLVMType(), 0),
-        llvm::PointerType::get(type::StringTy::Instance()->GetLLVMType(), 0)
+        type::StringTy::Instance()->GetLLVMType(),
+        type::StringTy::Instance()->GetLLVMType()
       },
       false
     ),
@@ -258,6 +258,7 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
     // 将形参加入环境venv
     {
+      venv->BeginScope();
       auto new_frame_formals = new_frame->Formals();
       auto formal_iter = new_frame_formals->begin();
       auto func_dec_params_iter = func_dec_params.begin();
@@ -318,6 +319,7 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     // 生成函数体，
     // 在分析函数体时，进行outgo的分配
     auto body_val_ty = func_dec->body_->Translate(venv, tenv, new_level, errormsg);
+    venv->EndScope();
 
     // 回填framesize_global
     new_frame->framesize_global->setInitializer(
@@ -327,7 +329,14 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       )
     );
 
-    ir_builder->CreateRet(body_val_ty->val_);
+    auto ret_val = body_val_ty->val_;
+    if(ret_val && ret_val->getType()->isIntegerTy(1) && result_ty->IsSameType(type::IntTy::Instance())) {
+      // 如果函数体返回值为bool，而函数返回值为int，则需要转换
+      // NOTE: 可能存在其他转换的情况
+      // 目前只有bool->int
+      ret_val = ir_builder->CreateZExt(ret_val, ir_builder->getInt32Ty());
+    }
+    ir_builder->CreateRet(ret_val);
 
     func_stack.pop();
   }
@@ -914,12 +923,20 @@ tr::ValAndTy *BreakExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 tr::ValAndTy *LetExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                 tr::Level *level,
                                 err::ErrorMsg *errormsg) const {
+  venv->BeginScope();
+  tenv->BeginScope();
+
   auto &dec_list = decs_->GetList();
   for(auto &dec: dec_list) {
     dec->Translate(venv, tenv, level, errormsg);
   }
 
-  return body_->Translate(venv, tenv, level, errormsg);
+  auto val_ty = body_->Translate(venv, tenv, level, errormsg);
+
+  venv->EndScope();
+  tenv->EndScope();
+
+  return val_ty;
 }
 
 tr::ValAndTy *ArrayExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
