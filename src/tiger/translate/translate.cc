@@ -703,7 +703,7 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
     ir_builder->SetInsertPoint(elsee_bb);
     elsee_ty_val = elsee_->Translate(venv, tenv, level, errormsg);
-    if(!CheckBBTerminatorIsBranch(elsee_bb)) {
+    if(!CheckBBTerminatorIsBranch(elsee_ty_val->last_bb_)) {
       ir_builder->CreateBr(next_bb);
     }
 
@@ -726,7 +726,7 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
     ir_builder->SetInsertPoint(then_bb);
     then_ty_val = then_->Translate(venv, tenv, level, errormsg);
-    if(!CheckBBTerminatorIsBranch(then_bb)) {
+    if(!CheckBBTerminatorIsBranch(then_ty_val->last_bb_)) {
       ir_builder->CreateBr(next_bb);
     }
 
@@ -816,15 +816,18 @@ tr::ValAndTy *LetExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 tr::ValAndTy *ArrayExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                   tr::Level *level,
                                   err::ErrorMsg *errormsg) const {
-  auto array_ele_ty = tenv->Look(typ_);
-  assert(array_ele_ty);
+  auto array_ty = tenv->Look(typ_);
+  assert(array_ty);
 
   auto size_val_ty = size_->Translate(venv, tenv, level, errormsg);
   auto init_val_ty = init_->Translate(venv, tenv, level, errormsg);
 
-  auto array_ptr = ir_builder->CreateCall(init_array, {size_val_ty->val_, init_val_ty->val_});
-
-  return new tr::ValAndTy(array_ptr, type::ArrayTy(array_ele_ty).ActualTy(), ir_builder->GetInsertBlock());
+  auto array_ptr_i64 = ir_builder->CreateCall(init_array, {size_val_ty->val_, ir_builder->CreateIntCast(init_val_ty->val_, ir_builder->getInt64Ty(), true)});
+  auto array_ptr = ir_builder->CreateIntToPtr(
+    array_ptr_i64,
+    array_ty->GetLLVMType()
+  );
+  return new tr::ValAndTy(array_ptr, array_ty, ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *VoidExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
