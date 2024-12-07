@@ -21,6 +21,7 @@ class Ty {
 public:
   virtual Ty *ActualTy();
   virtual bool IsSameType(Ty *);
+  virtual bool IsStrictSameType(Ty *);
   virtual llvm::Type *GetLLVMType();
 
 protected:

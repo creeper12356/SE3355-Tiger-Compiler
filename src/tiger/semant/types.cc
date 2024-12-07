@@ -30,6 +30,10 @@ bool Ty::IsSameType(Ty *expected) {
   return a == b;
 }
 
+bool Ty::IsStrictSameType(Ty *expected) {
+  return ActualTy() == expected->ActualTy();
+}
+
 llvm::Type *Ty::GetLLVMType() {
   assert(0);
   return NULL;

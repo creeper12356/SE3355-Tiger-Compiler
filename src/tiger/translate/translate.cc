@@ -241,14 +241,19 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     // 将函数加入环境venv,
     // 此处的形参并不包含stack pointer和static link
     auto formal_ty_list = func_dec->params_->MakeFormalTyList(tenv, errormsg);
+    auto new_func_entry = new env::FunEntry(
+      new_level,
+      formal_ty_list,
+      result_ty,
+      func_dec->name_->Name()
+    );
+
+    // NOTE: 此处为了正确性，将new_func_entry.func_修改为上面手动创建的llvm函数，
+    // 可能造成内存泄漏
+    new_func_entry->func_ = func;
     venv->Enter(
       func_dec->name_,
-      new env::FunEntry(
-        new_level,
-        formal_ty_list,
-        result_ty,
-        func_dec->name_->Name()
-      )
+      new_func_entry
     );
 
     // 将形参加入环境venv
@@ -509,9 +514,8 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                  err::ErrorMsg *errormsg) const {
   // NOTE: 在目前的实现中，将所有域中定义的函数视为全局函数
   // 不考虑重名的情况
-  auto func = static_cast<env::FunEntry *>(venv->Look(func_)); // nullable
-  
-  auto llvm_func = ir_module->getFunction(func_->Name());
+  auto func_entry = static_cast<env::FunEntry *>(venv->Look(func_)); 
+  auto llvm_func = func_entry->func_;
   auto& logical_args = args_->GetList();
   std::vector<llvm::Value *> actual_args;
   if(llvm_func->arg_size() == logical_args.size()) {
@@ -519,11 +523,11 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     actual_args.reserve(logical_args.size());
   } else {
     // 用户自定义函数，需要在参数中传入stack pointer和static link
-    assert(func);
+    assert(func_entry);
 
     auto cur_level = level;
     llvm::Value *static_link = cur_level->get_sp();
-    while(cur_level != func->level_->parent_) {
+    while(cur_level != func_entry->level_->parent_) {
       // 当前层的第一个formal即为static link
       auto sl_formal = cur_level->frame_->Formals()->begin();
       llvm::Value *static_link_addr = (*sl_formal)->ToLLVMVal(static_link);
@@ -555,7 +559,7 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   if(llvm_func->getReturnType()->isVoidTy()) {
     return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
   } else {
-    return new tr::ValAndTy(call_val, func->result_, ir_builder->GetInsertBlock());
+    return new tr::ValAndTy(call_val, func_entry->result_, ir_builder->GetInsertBlock());
   }
 }
 
@@ -567,8 +571,14 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     auto left_val_ty = left_->Translate(venv, tenv, level, errormsg);
     auto and_then_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "and_then", func_stack.top());
     auto and_next_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "and_next", func_stack.top());
+    
+    auto left_cond_val = left_val_ty->val_;
+    if(!left_cond_val->getType()->isIntegerTy(1)) {
+      // 不是bool类型，转换为bool类型
+      left_cond_val = ir_builder->CreateICmpNE(left_cond_val, llvm::ConstantInt::get(left_cond_val->getType(), 0));
+    }
 
-    ir_builder->CreateCondBr(left_val_ty->val_, and_then_bb, and_next_bb);
+    ir_builder->CreateCondBr(left_cond_val, and_then_bb, and_next_bb);
 
     ir_builder->SetInsertPoint(and_then_bb);
     auto right_val_ty = right_->Translate(venv, tenv, level, errormsg);
@@ -585,7 +595,13 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     auto or_then_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "or_then", func_stack.top());
     auto or_next_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "or_next", func_stack.top());
 
-    ir_builder->CreateCondBr(left_val_ty->val_, or_next_bb, or_then_bb);
+    auto left_cond_val = left_val_ty->val_;
+    if(!left_cond_val->getType()->isIntegerTy(1)) {
+      // 不是bool类型，转换为bool类型
+      left_cond_val = ir_builder->CreateICmpNE(left_cond_val, llvm::ConstantInt::get(left_cond_val->getType(), 0));
+    }
+
+    ir_builder->CreateCondBr(left_cond_val, or_next_bb, or_then_bb);
 
     ir_builder->SetInsertPoint(or_then_bb);
     auto right_val_ty = right_->Translate(venv, tenv, level, errormsg);
@@ -732,7 +748,12 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   ir_builder->SetInsertPoint(test_bb);
 
   auto test_ty_val = test_->Translate(venv, tenv, level, errormsg);
-  auto test_val = test_ty_val->val_;
+
+  auto cond_val = test_ty_val->val_;
+  if(!cond_val->getType()->isIntegerTy(1)) {
+    // 不是bool类型，转换为bool类型
+    cond_val = ir_builder->CreateICmpNE(cond_val, llvm::ConstantInt::get(cond_val->getType(), 0));
+  }
 
   tr::ValAndTy *then_ty_val = nullptr;
   tr::ValAndTy *elsee_ty_val = nullptr;
@@ -740,7 +761,7 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     // if-then-else
     auto elsee_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "if_else", func_stack.top());
 
-    ir_builder->CreateCondBr(test_val, then_bb, elsee_bb);
+    ir_builder->CreateCondBr(cond_val, then_bb, elsee_bb);
 
     ir_builder->SetInsertPoint(then_bb);
     then_ty_val = then_->Translate(venv, tenv, level, errormsg);
@@ -755,21 +776,41 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     }
 
     ir_builder->SetInsertPoint(next_bb);
+    // NOTE: 在IsSameType的实现中，NilTy和RecordTy被认为是相同的类型
     assert(then_ty_val->ty_->IsSameType(elsee_ty_val->ty_));
     if(!then_ty_val->ty_->IsSameType(type::VoidTy::Instance())) {
       // 两个分支都有值且类型相同，使用phi指令
       auto phi_val = ir_builder->CreatePHI(then_ty_val->val_->getType(), 2);
-      phi_val->addIncoming(then_ty_val->val_, then_ty_val->last_bb_);
-      phi_val->addIncoming(elsee_ty_val->val_, elsee_ty_val->last_bb_);
 
-      return new tr::ValAndTy(phi_val, then_ty_val->ty_, ir_builder->GetInsertBlock());
+      // 两个分支至少有一个不是nil(使用strict)
+      assert(!then_ty_val->ty_->IsStrictSameType(type::NilTy::Instance()) || 
+             !elsee_ty_val->ty_->IsStrictSameType(type::NilTy::Instance()));
+
+      auto then_val = then_ty_val->val_;
+      auto elsee_val = elsee_ty_val->val_;
+      type::Ty *phi_ty = then_ty_val->ty_;
+
+      if(then_ty_val->ty_->IsStrictSameType(type::NilTy::Instance())) {
+        // then分支为nil，转换为else分支的类型
+        then_val = ir_builder->CreateIntToPtr(then_val, elsee_val->getType());
+        phi_ty = elsee_ty_val->ty_;
+      } else if(elsee_ty_val->ty_->IsStrictSameType(type::NilTy::Instance())) {
+        // else分支为nil，转换为then分支的类型
+        elsee_val = ir_builder->CreateIntToPtr(elsee_val, then_val->getType());
+        phi_ty = then_ty_val->ty_;
+      }
+
+      phi_val->addIncoming(then_val, then_ty_val->last_bb_);
+      phi_val->addIncoming(elsee_val, elsee_ty_val->last_bb_);
+
+      return new tr::ValAndTy(phi_val, phi_ty, ir_builder->GetInsertBlock());
     } else {
       // 两个分支都无值，返回void
       return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
     }
   } else {
     // if-then
-    ir_builder->CreateCondBr(test_val, then_bb, next_bb);
+    ir_builder->CreateCondBr(cond_val, then_bb, next_bb);
 
     ir_builder->SetInsertPoint(then_bb);
     then_ty_val = then_->Translate(venv, tenv, level, errormsg);
@@ -797,8 +838,14 @@ tr::ValAndTy *WhileExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
   ir_builder->SetInsertPoint(test_bb);
   auto test_ty_val = test_->Translate(venv, tenv, level, errormsg);
-  auto test_val = test_ty_val->val_;
-  ir_builder->CreateCondBr(test_val, body_bb, next_bb);
+
+  auto cond_val = test_ty_val->val_;
+  if(!cond_val->getType()->isIntegerTy(1)) {
+    // 不是bool类型，转换为bool类型
+    cond_val = ir_builder->CreateICmpNE(cond_val, llvm::ConstantInt::get(cond_val->getType(), 0));
+  }
+  
+  ir_builder->CreateCondBr(cond_val, body_bb, next_bb);
 
   ir_builder->SetInsertPoint(body_bb);
   body_->Translate(venv, tenv, level, errormsg);
