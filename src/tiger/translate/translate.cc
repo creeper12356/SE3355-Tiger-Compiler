@@ -283,10 +283,7 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       )
     );
 
-    // 如果函数体不是void类型，需要返回值
-    if(!result_ty->IsSameType(type::VoidTy::Instance())) {
-      ir_builder->CreateRet(body_val_ty->val_);
-    }
+    ir_builder->CreateRet(body_val_ty->val_);
 
     func_stack.pop();
   }
@@ -362,7 +359,7 @@ tr::ValAndTy *SimpleVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       llvm::PointerType::get(var_entry->ty_->GetLLVMType(), 0),
       sym_->Name()
     );
-    return new tr::ValAndTy(val, var_entry->ty_->ActualTy());
+    return new tr::ValAndTy(val, var_entry->ty_->ActualTy(), ir_builder->GetInsertBlock());
   } else {
     // 访问逃逸变量
     llvm::Value *val = level->get_sp();
