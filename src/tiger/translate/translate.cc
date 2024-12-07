@@ -562,9 +562,41 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                tr::Level *level,
                                err::ErrorMsg *errormsg) const {
-  // TODO: 考虑短路求值
+  //NOTE: AND, OR需要考虑短路求值
   if(oper_ == AND_OP) {
+    auto left_val_ty = left_->Translate(venv, tenv, level, errormsg);
+    auto and_then_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "and_then", func_stack.top());
+    auto and_next_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "and_next", func_stack.top());
+
+    ir_builder->CreateCondBr(left_val_ty->val_, and_then_bb, and_next_bb);
+
+    ir_builder->SetInsertPoint(and_then_bb);
+    auto right_val_ty = right_->Translate(venv, tenv, level, errormsg);
+    ir_builder->CreateBr(and_next_bb);
+
+    ir_builder->SetInsertPoint(and_next_bb);
+    auto phi_val = ir_builder->CreatePHI(ir_builder->getInt1Ty(), 2);
+    phi_val->addIncoming(left_val_ty->val_, left_val_ty->last_bb_);
+    phi_val->addIncoming(right_val_ty->val_, right_val_ty->last_bb_);
+
+    return new tr::ValAndTy(phi_val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
   } else if(oper_ == OR_OP) {
+    auto left_val_ty = left_->Translate(venv, tenv, level, errormsg);
+    auto or_then_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "or_then", func_stack.top());
+    auto or_next_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "or_next", func_stack.top());
+
+    ir_builder->CreateCondBr(left_val_ty->val_, or_next_bb, or_then_bb);
+
+    ir_builder->SetInsertPoint(or_then_bb);
+    auto right_val_ty = right_->Translate(venv, tenv, level, errormsg);
+    ir_builder->CreateBr(or_next_bb);
+
+    ir_builder->SetInsertPoint(or_next_bb);
+    auto phi_val = ir_builder->CreatePHI(ir_builder->getInt1Ty(), 2);
+    phi_val->addIncoming(left_val_ty->val_, left_val_ty->last_bb_);
+    phi_val->addIncoming(right_val_ty->val_, right_val_ty->last_bb_);
+
+    return new tr::ValAndTy(phi_val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
   } else {
     // 无需考虑短路求值
     auto left_val_ty = left_->Translate(venv, tenv, level, errormsg);
@@ -700,10 +732,7 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   ir_builder->SetInsertPoint(test_bb);
 
   auto test_ty_val = test_->Translate(venv, tenv, level, errormsg);
-  auto test_val = ir_builder->CreateICmpNE(
-    test_ty_val->val_,
-    ir_builder->getInt1(0)
-  );
+  auto test_val = test_ty_val->val_;
 
   tr::ValAndTy *then_ty_val = nullptr;
   tr::ValAndTy *elsee_ty_val = nullptr;
@@ -768,10 +797,7 @@ tr::ValAndTy *WhileExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
   ir_builder->SetInsertPoint(test_bb);
   auto test_ty_val = test_->Translate(venv, tenv, level, errormsg);
-  auto test_val = ir_builder->CreateICmpNE(
-    test_ty_val->val_,
-    ir_builder->getInt1(0)
-  );
+  auto test_val = test_ty_val->val_;
   ir_builder->CreateCondBr(test_val, body_bb, next_bb);
 
   ir_builder->SetInsertPoint(body_bb);
