@@ -678,12 +678,10 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   auto then_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "if_then", func_stack.top());
   auto next_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "if_next", func_stack.top());
 
-  // TODO: 检查origin bb是否以分支结尾
   ir_builder->CreateBr(test_bb);
   ir_builder->SetInsertPoint(test_bb);
 
   auto test_ty_val = test_->Translate(venv, tenv, level, errormsg);
-  // TODO: 类型转换
   auto test_val = ir_builder->CreateICmpNE(
     test_ty_val->val_,
     ir_builder->getInt1(0)
@@ -699,11 +697,15 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
     ir_builder->SetInsertPoint(then_bb);
     then_ty_val = then_->Translate(venv, tenv, level, errormsg);
-    ir_builder->CreateBr(next_bb);
+    if(!CheckBBTerminatorIsBranch(then_bb)) {
+      ir_builder->CreateBr(next_bb);
+    }
 
     ir_builder->SetInsertPoint(elsee_bb);
     elsee_ty_val = elsee_->Translate(venv, tenv, level, errormsg);
-    ir_builder->CreateBr(next_bb);
+    if(!CheckBBTerminatorIsBranch(elsee_bb)) {
+      ir_builder->CreateBr(next_bb);
+    }
 
     ir_builder->SetInsertPoint(next_bb);
     assert(then_ty_val->ty_->IsSameType(elsee_ty_val->ty_));
@@ -724,7 +726,11 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
     ir_builder->SetInsertPoint(then_bb);
     then_ty_val = then_->Translate(venv, tenv, level, errormsg);
-    ir_builder->CreateBr(next_bb);
+    if(!CheckBBTerminatorIsBranch(then_bb)) {
+      ir_builder->CreateBr(next_bb);
+    }
+
+    ir_builder->SetInsertPoint(next_bb);
 
     // if-then表达式是无值的
     return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
@@ -736,26 +742,25 @@ tr::ValAndTy *WhileExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                   err::ErrorMsg *errormsg) const {
   auto test_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "while_test", func_stack.top());
   auto body_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "while_body", func_stack.top());
-  auto done_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "while_done", func_stack.top());
+  auto next_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "while_next", func_stack.top());
 
-  loop_stack.push(done_bb);
+  loop_stack.push(next_bb);
 
   ir_builder->CreateBr(test_bb);
 
   ir_builder->SetInsertPoint(test_bb);
   auto test_ty_val = test_->Translate(venv, tenv, level, errormsg);
-  // TODO: 类型转换
   auto test_val = ir_builder->CreateICmpNE(
     test_ty_val->val_,
     ir_builder->getInt1(0)
   );
-  ir_builder->CreateCondBr(test_val, body_bb, done_bb);
+  ir_builder->CreateCondBr(test_val, body_bb, next_bb);
 
   ir_builder->SetInsertPoint(body_bb);
   body_->Translate(venv, tenv, level, errormsg);
   ir_builder->CreateBr(test_bb);
 
-  ir_builder->SetInsertPoint(done_bb);
+  ir_builder->SetInsertPoint(next_bb);
   loop_stack.pop();
   return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
 }
