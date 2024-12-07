@@ -53,9 +53,11 @@ class ValAndTy {
 public:
   type::Ty *ty_;
   llvm::Value *val_;
-  llvm::BasicBlock *last_bb_;
+  llvm::BasicBlock *last_bb_; // 用于分支合并
 
   ValAndTy(llvm::Value *val, type::Ty *ty) : val_(val), ty_(ty) {}
+  ValAndTy(llvm::Value *val, type::Ty *ty, llvm::BasicBlock *last_bb)
+      : val_(val), ty_(ty), last_bb_(last_bb) {}
 };
 
 void ProgTr::OutputIR(std::string_view filename) {
@@ -173,7 +175,7 @@ void FunctionDec::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     );
     
     // 创建LLVM IR函数定义
-    auto result_ty = tenv->Look(func_dec->result_);
+    auto result_ty = func_dec->result_ ? tenv->Look(func_dec->result_) : type::VoidTy::Instance();
     auto params = std::vector<llvm::Type *>();
     auto func_dec_params = func_dec->params_->GetList();
 
@@ -382,7 +384,7 @@ tr::ValAndTy *SimpleVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       llvm::PointerType::get(var_entry->ty_->GetLLVMType(), 0),
       sym_->Name()
     );
-    return new tr::ValAndTy(val, var_entry->ty_->ActualTy());
+    return new tr::ValAndTy(val, var_entry->ty_->ActualTy(), ir_builder->GetInsertBlock());
   }
 }
 
@@ -411,7 +413,7 @@ tr::ValAndTy *FieldVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     ir_builder->getInt32(index)
   );
 
-  return new tr::ValAndTy(val, field_ty);
+  return new tr::ValAndTy(val, field_ty, ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *SubscriptVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
@@ -429,33 +431,39 @@ tr::ValAndTy *SubscriptVar::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     subscript_val_ty->val_
   );
 
-  return new tr::ValAndTy(val, array_ty->ty_);
+  return new tr::ValAndTy(val, array_ty->ty_, ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *VarExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                 tr::Level *level,
                                 err::ErrorMsg *errormsg) const {
-  return var_->Translate(venv, tenv, level, errormsg);
+  auto var_val_ty = var_->Translate(venv, tenv, level, errormsg);
+  // 左值转右值
+  return new tr::ValAndTy(
+    ir_builder->CreateLoad(var_val_ty->ty_->GetLLVMType(), var_val_ty->val_),
+    var_val_ty->ty_,
+    var_val_ty->last_bb_
+  );
 }
 
 tr::ValAndTy *NilExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                 tr::Level *level,
                                 err::ErrorMsg *errormsg) const {
-  return new tr::ValAndTy(ir_builder->getInt64(0), type::NilTy::Instance());
+  return new tr::ValAndTy(ir_builder->getInt64(0), type::NilTy::Instance(), ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *IntExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                 tr::Level *level,
                                 err::ErrorMsg *errormsg) const {
-  return new tr::ValAndTy(ir_builder->getInt32(val_), type::IntTy::Instance());
+  return new tr::ValAndTy(ir_builder->getInt32(val_), type::IntTy::Instance(), ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *StringExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                    tr::Level *level,
                                    err::ErrorMsg *errormsg) const {
-  // TODO: 翻译tiger string
-  return new tr::ValAndTy(ir_builder->CreateGlobalStringPtr(str_),
-                          type::StringTy::Instance());
+  // auto const_str_val = ir_builder->CreateGlobalStringPtr(str_);
+  auto const_str_val = type::StringTy::CreateGlobalStringStructPtr(str_);
+  return new tr::ValAndTy(const_str_val, type::StringTy::Instance(), ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
@@ -489,9 +497,9 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   auto call_val = ir_builder->CreateCall(llvm_func, actual_args);
 
   if(llvm_func->getReturnType()->isVoidTy()) {
-    return new tr::ValAndTy(nullptr, type::VoidTy::Instance());
+    return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
   } else {
-    return new tr::ValAndTy(call_val, func->result_);
+    return new tr::ValAndTy(call_val, func->result_, ir_builder->GetInsertBlock());
   }
 }
 
@@ -511,8 +519,8 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     assert(left_val_ty->ty_->IsSameType(type::IntTy::Instance()) || 
             left_val_ty->ty_->IsSameType(type::StringTy::Instance()));
     
-    auto left_val_loaded = ir_builder->CreateLoad(left_val_ty->ty_->GetLLVMType(), left_val_ty->val_);
-    auto right_val_loaded = ir_builder->CreateLoad(right_val_ty->ty_->GetLLVMType(), right_val_ty->val_);
+    llvm::Value *left_exp_val = left_val_ty->val_;
+    llvm::Value *right_exp_val = right_val_ty->val_;
 
     llvm::Value *val = nullptr;
 
@@ -521,40 +529,39 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       switch (oper_)
       {
         case PLUS_OP:
-          val = ir_builder->CreateAdd(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateAdd(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case MINUS_OP:
-          val = ir_builder->CreateSub(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateSub(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case TIMES_OP:
-          val = ir_builder->CreateMul(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateMul(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case DIVIDE_OP:
-          val = ir_builder->CreateSDiv(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateSDiv(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case EQ_OP:
-          val = ir_builder->CreateICmpEQ(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateICmpEQ(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case NEQ_OP:
-          val = ir_builder->CreateICmpNE(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateICmpNE(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case LT_OP:
-          val = ir_builder->CreateICmpSLT(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateICmpSLT(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case LE_OP:
-          val = ir_builder->CreateICmpSLE(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateICmpSLE(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case GT_OP:
-          val = ir_builder->CreateICmpSGT(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateICmpSGT(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case GE_OP:
-          val = ir_builder->CreateICmpSGE(left_val_loaded, right_val_loaded);
-          break;
+          val = ir_builder->CreateICmpSGE(left_exp_val, right_exp_val);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         default:
           assert(0);
           break;
       }; 
-      return new tr::ValAndTy(val, left_val_ty->ty_);
 
     } else {
       // 字符串比较
@@ -562,18 +569,16 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       {
         case EQ_OP:
           val = ir_builder->CreateCall(string_equal, {left_val_ty->val_, right_val_ty->val_});
-          break;
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         case NEQ_OP:
           val = ir_builder->CreateNot(ir_builder->CreateCall(string_equal, {left_val_ty->val_, right_val_ty->val_}));
-          break;
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
         default:
           assert(0);
           break;
       }
-      return new tr::ValAndTy(val, type::IntTy::Instance());
     }
   }
-  
 
 }
 
@@ -585,7 +590,7 @@ tr::ValAndTy *RecordExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   assert(record_ty);
   auto record_ptr = ir_builder->CreateCall(alloc_record, {ir_builder->getInt64(efield_list.size() * 8)});
 
-  return new tr::ValAndTy(record_ptr, record_ty);
+  return new tr::ValAndTy(record_ptr, record_ty, ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *SeqExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
@@ -608,7 +613,7 @@ tr::ValAndTy *AssignExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   ir_builder->CreateStore(exp_ty_val->val_, var_ty_val->val_);
 
   // 赋值表达式不产生值
-  return new tr::ValAndTy(nullptr, type::VoidTy::Instance());
+  return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
@@ -626,14 +631,14 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   // TODO: 类型转换
   auto test_val = ir_builder->CreateICmpNE(
     test_ty_val->val_,
-    ir_builder->getInt64(0)
+    ir_builder->getInt1(0)
   );
 
   tr::ValAndTy *then_ty_val = nullptr;
   tr::ValAndTy *elsee_ty_val = nullptr;
-  if(!elsee_) {
+  if(elsee_) {
     // if-then-else
-    auto elsee_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "if_elsee", func_stack.top());
+    auto elsee_bb = llvm::BasicBlock::Create(ir_builder->getContext(), "if_else", func_stack.top());
 
     ir_builder->CreateCondBr(test_val, then_bb, elsee_bb);
 
@@ -646,10 +651,18 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     ir_builder->CreateBr(next_bb);
 
     ir_builder->SetInsertPoint(next_bb);
-    auto phi_val = ir_builder->CreatePHI(then_ty_val->val_->getType(), 2);
-    // TODO: last active bb
-    // TODO: 考虑类型转换
-    return new tr::ValAndTy(phi_val, then_ty_val->ty_);
+    assert(then_ty_val->ty_->IsSameType(elsee_ty_val->ty_));
+    if(!then_ty_val->ty_->IsSameType(type::VoidTy::Instance())) {
+      // 两个分支都有值且类型相同，使用phi指令
+      auto phi_val = ir_builder->CreatePHI(then_ty_val->val_->getType(), 2);
+      phi_val->addIncoming(then_ty_val->val_, then_ty_val->last_bb_);
+      phi_val->addIncoming(elsee_ty_val->val_, elsee_ty_val->last_bb_);
+
+      return new tr::ValAndTy(phi_val, then_ty_val->ty_, ir_builder->GetInsertBlock());
+    } else {
+      // 两个分支都无值，返回void
+      return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
+    }
   } else {
     // if-then
     ir_builder->CreateCondBr(test_val, then_bb, next_bb);
@@ -659,7 +672,7 @@ tr::ValAndTy *IfExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     ir_builder->CreateBr(next_bb);
 
     // if-then表达式是无值的
-    return new tr::ValAndTy(nullptr, type::VoidTy::Instance());
+    return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
   }
 }
 
@@ -679,7 +692,7 @@ tr::ValAndTy *WhileExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
   // TODO: 类型转换
   auto test_val = ir_builder->CreateICmpNE(
     test_ty_val->val_,
-    ir_builder->getInt64(0)
+    ir_builder->getInt1(0)
   );
   ir_builder->CreateCondBr(test_val, body_bb, done_bb);
 
@@ -689,7 +702,7 @@ tr::ValAndTy *WhileExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
   ir_builder->SetInsertPoint(done_bb);
   loop_stack.pop();
-  return new tr::ValAndTy(nullptr, type::VoidTy::Instance());
+  return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *ForExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
@@ -726,7 +739,7 @@ tr::ValAndTy *BreakExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                   tr::Level *level,
                                   err::ErrorMsg *errormsg) const {
   ir_builder->CreateBr(loop_stack.top());
-  return new tr::ValAndTy(nullptr, type::VoidTy::Instance());
+  return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *LetExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
@@ -751,14 +764,13 @@ tr::ValAndTy *ArrayExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
 
   auto array_ptr = ir_builder->CreateCall(init_array, {size_val_ty->val_, init_val_ty->val_});
 
-  // TODO: 应该返回一个有效的数组类型指针
-  return new tr::ValAndTy(array_ptr, type::ArrayTy(array_ele_ty).ActualTy());
+  return new tr::ValAndTy(array_ptr, type::ArrayTy(array_ele_ty).ActualTy(), ir_builder->GetInsertBlock());
 }
 
 tr::ValAndTy *VoidExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                  tr::Level *level,
                                  err::ErrorMsg *errormsg) const {
-  return new tr::ValAndTy(nullptr, type::VoidTy::Instance());
+  return new tr::ValAndTy(nullptr, type::VoidTy::Instance(), ir_builder->GetInsertBlock());
 }
 
 } // namespace absyn
