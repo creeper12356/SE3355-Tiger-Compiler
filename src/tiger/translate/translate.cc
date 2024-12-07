@@ -618,10 +618,10 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     auto left_val_ty = left_->Translate(venv, tenv, level, errormsg);
     auto right_val_ty = right_->Translate(venv, tenv, level, errormsg);
 
-    // 保证操作数类型相同，且都为简单类型（int or string）    
+    // 保证操作数类型相同  
     assert(left_val_ty->ty_->IsSameType(right_val_ty->ty_));
-    assert(left_val_ty->ty_->IsSameType(type::IntTy::Instance()) || 
-            left_val_ty->ty_->IsSameType(type::StringTy::Instance()));
+    // assert(left_val_ty->ty_->IsSameType(type::IntTy::Instance()) || 
+    //         left_val_ty->ty_->IsSameType(type::StringTy::Instance()));
     
     llvm::Value *left_exp_val = left_val_ty->val_;
     llvm::Value *right_exp_val = right_val_ty->val_;
@@ -667,7 +667,7 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
           break;
       }; 
 
-    } else {
+    } else if(left_val_ty->ty_->IsSameType(type::StringTy::Instance())) {
       // 字符串比较
       switch(oper_) 
       {
@@ -677,6 +677,24 @@ tr::ValAndTy *OpExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
         case NEQ_OP:
           val = ir_builder->CreateNot(ir_builder->CreateCall(string_equal, {left_val_ty->val_, right_val_ty->val_}));
           return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
+        default:
+          assert(0);
+          break;
+      }
+    } else {
+      // 复合类型
+      // 将指针转为整数进行比较
+      auto left_exp_val_i64 = ir_builder->CreatePtrToInt(left_exp_val, ir_builder->getInt64Ty());
+      auto right_exp_val_i64 = ir_builder->CreatePtrToInt(right_exp_val, ir_builder->getInt64Ty());
+      switch(oper_) {
+        case EQ_OP:
+          val = ir_builder->CreateICmpEQ(left_exp_val_i64, right_exp_val_i64);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
+          break;
+        case NEQ_OP:
+          val = ir_builder->CreateICmpNE(left_exp_val_i64, right_exp_val_i64);
+          return new tr::ValAndTy(val, type::IntTy::Instance(), ir_builder->GetInsertBlock());
+          break;
         default:
           assert(0);
           break;
@@ -844,7 +862,7 @@ tr::ValAndTy *WhileExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     // 不是bool类型，转换为bool类型
     cond_val = ir_builder->CreateICmpNE(cond_val, llvm::ConstantInt::get(cond_val->getType(), 0));
   }
-  
+
   ir_builder->CreateCondBr(cond_val, body_bb, next_bb);
 
   ir_builder->SetInsertPoint(body_bb);
