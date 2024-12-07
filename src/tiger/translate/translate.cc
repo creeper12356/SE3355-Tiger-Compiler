@@ -509,7 +509,7 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
                                  err::ErrorMsg *errormsg) const {
   // NOTE: 在目前的实现中，将所有域中定义的函数视为全局函数
   // 不考虑重名的情况
-  auto func = static_cast<env::FunEntry *>(venv->Look(func_));
+  auto func = static_cast<env::FunEntry *>(venv->Look(func_)); // nullable
   
   auto llvm_func = ir_module->getFunction(func_->Name());
   auto& logical_args = args_->GetList();
@@ -519,9 +519,27 @@ tr::ValAndTy *CallExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
     actual_args.reserve(logical_args.size());
   } else {
     // 用户自定义函数，需要在参数中传入stack pointer和static link
+    assert(func);
+
+    auto cur_level = level;
+    llvm::Value *static_link = cur_level->get_sp();
+    while(cur_level != func->level_->parent_) {
+      // 当前层的第一个formal即为static link
+      auto sl_formal = cur_level->frame_->Formals()->begin();
+      llvm::Value *static_link_addr = (*sl_formal)->ToLLVMVal(static_link);
+      llvm::Value *static_link_ptr = ir_builder->CreateIntToPtr(
+        static_link_addr,
+        llvm::PointerType::get(ir_builder->getInt64Ty(), 0)
+      );
+      static_link = ir_builder->CreateLoad(ir_builder->getInt64Ty(), static_link_ptr);
+
+      cur_level = cur_level->parent_;
+    }
+
+
     actual_args.reserve(logical_args.size() + 2);
     actual_args.push_back(level->get_sp());
-    actual_args.push_back(level->get_sp());
+    actual_args.push_back(static_link);
   }
   for(auto &logical_arg: logical_args) {
     auto arg_val_ty = logical_arg->Translate(venv, tenv, level, errormsg);
