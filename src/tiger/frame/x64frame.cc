@@ -86,7 +86,21 @@ public:
   explicit InFrameAccess(int offset, frame::Frame *parent)
       : offset(offset), parent_frame(parent) {}
 
-  /* TODO: Put your lab5-part1 code here */
+  llvm::Value *ToLLVMVal(llvm::Value *sp) override {
+    auto local_framesize_val = ir_builder->CreateLoad(
+      ir_builder->getInt64Ty(),
+      parent_frame->framesize_global
+    );
+    auto add_val_1 = ir_builder->CreateAdd(
+      local_framesize_val,
+      llvm::ConstantInt::get(ir_builder->getInt64Ty(), offset)
+    );
+    auto add_val_2 = ir_builder->CreateAdd(
+      sp,
+      add_val_1
+    );
+    return add_val_2;
+  }
 };
 
 class X64Frame : public Frame {
@@ -114,7 +128,14 @@ public:
 };
 
 frame::Frame *NewFrame(temp::Label *name, std::list<bool> formals) {
-  /* TODO: Put your lab5-part1 code here */
+  auto formal_access_list = new std::list<frame::Access *>();
+  auto new_frame = new X64Frame(name, formal_access_list);
+  auto formal_cnt = formals.size();
+  for(size_t i = 0;i < formal_cnt; ++i) {
+    // NOTE: 忽略逃逸分析结果，全部假定通过栈传参
+    formal_access_list->push_back(new InFrameAccess((i + 1) * 8, new_frame));
+  }
+  return new_frame;
 }
 
 /**

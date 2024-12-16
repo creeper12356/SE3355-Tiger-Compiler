@@ -73,8 +73,14 @@ protected:
 class Access {
 public:
   /* TODO: Put your lab5-part1 code here */
+  /**
+   * @brief 将Access转换为LLVM Value
+   * 
+   * @param frame_addr_ptr 栈指针
+   * @return llvm::Value* int64类型的地址，需要手动转为指针类型
+   */
+  virtual llvm::Value *ToLLVMVal(llvm::Value *sp) = 0;
 
-  virtual ~Access() = default;
 };
 
 class Frame {
@@ -96,7 +102,10 @@ public:
   [[nodiscard]] virtual std::list<frame::Access *> *Formals() const = 0;
   virtual frame::Access *AllocLocal(bool escape) = 0;
   virtual void AllocOutgoSpace(int size) = 0;
-  int calculateActualFramesize() { return (-offset_ + outgo_size_) + 8; }
+  int calculateActualFramesize() {
+    // NOTE: +8 表示返回地址
+    return (-offset_ + outgo_size_) + 8;
+  }
 };
 
 /**
