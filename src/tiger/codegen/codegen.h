@@ -45,7 +45,8 @@ public:
   // check if the value is %sp in llvm
   bool IsRsp(llvm::Value *val, std::string_view function_name) const {
     // NOTE: 后续可能需要修改
-    return val->getName().str() == std::string(function_name) + "_sp";
+    auto val_name = val->getName().str();
+    return val_name == std::string(function_name) + "_sp";
   }
 
   // bb is to add move instruction to record which block it jumps from

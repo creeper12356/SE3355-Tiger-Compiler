@@ -139,7 +139,7 @@ void ProgTr::Translate() {
     ir_builder->getInt64Ty(),
     main_level_->frame_->framesize_global
   );
-  main_level_->set_sp(ir_builder->CreateSub(main_func->arg_begin(), local_framesize_val));
+  main_level_->set_sp(ir_builder->CreateSub(main_func->arg_begin(), local_framesize_val, "tigermain_sp"));
   absyn_tree_->Translate(venv_.get(), tenv_.get(), main_level_.get(),
                          errormsg_.get());
   

@@ -110,37 +110,55 @@ void AssemInstr::Print(FILE *out, temp::Map *map) const {
 void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
                        std::string_view function_name, llvm::BasicBlock *bb) {
   // TODO: your lab5 code here
-  // TODO: 考虑参数为llvm全局变量的情况
   auto opcode = inst.getOpcode();
   switch (opcode)
   {
   case llvm::Instruction::Load:
+  // res = load op0
     {
       auto type = inst.getType();
       if(!type->isIntegerTy()) {
         throw std::runtime_error("Not supported load instr type");
       }
-      auto src_temp = temp_map_->at(inst.getOperand(0));
       auto dst_temp = temp::TempFactory::NewTemp();
+      if(auto global_var = llvm::dyn_cast<llvm::GlobalVariable>(inst.getOperand(0))) {
+        // op0: global var
+        instr_list->Append(new assem::MoveInstr(
+          "movq " + global_var->getName().str() + "(%rip),`d0",
+          new temp::TempList(dst_temp),
+          nullptr
+        ));
+      } else {
+        // op0: temp
+        auto src_temp = temp_map_->at(inst.getOperand(0));
+        instr_list->Append(new assem::MoveInstr(
+          "movq (`s0),`d0",
+          new temp::TempList(dst_temp),
+          new temp::TempList(src_temp)
+        ));
+      }
+
       temp_map_->insert({&inst, dst_temp});
-      instr_list->Append(new assem::MoveInstr(
-        "movq (`s0),`d0",
-        new temp::TempList(dst_temp),
-        new temp::TempList(src_temp)
-      ));
     }
     break;
   case llvm::Instruction::Add:
+  // res = add op0, op1
     {
       auto type = inst.getType();
       if(!type->isIntegerTy()) {
         throw std::runtime_error("Not supported add instr type");
       }
       // NOTE: 此处假定第一个参数为临时变量
-      auto first_operand_temp = temp_map_->at(inst.getOperand(0));
+      // NOTE: 生成的llvm中，只有add指令可能用到xxx_sp，且总是第一个参数
+      temp::Temp *first_operand_temp = nullptr;
+      if(IsRsp(inst.getOperand(0), function_name)) {
+        first_operand_temp = reg_manager->GetRegister(frame::X64RegManager::Reg::RSP);
+      } else {
+        first_operand_temp = temp_map_->at(inst.getOperand(0));
+      }
       auto dst_temp = temp::TempFactory::NewTemp();
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
-        // 第二个参数为常数，翻译为leaq指令
+        // op1: immediate
         instr_list->Append(new assem::OperInstr(
           "leaq " + std::to_string(const_int->getSExtValue()) + "(`s0),`d0",
           new temp::TempList(dst_temp),
@@ -148,7 +166,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           nullptr
         ));
       } else {
-        // 第二个参数为临时变量，翻译为addq指令
+        // op1: temp
         auto second_operand_temp = temp_map_->at(inst.getOperand(1));
         auto dst_temp = temp::TempFactory::NewTemp();
         instr_list->Append(new assem::MoveInstr(
@@ -167,17 +185,33 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       temp_map_->insert({&inst, dst_temp});
     }
     break;
+  
   case llvm::Instruction::Sub:
+  // res = sub op0, op1
     {
       // 减法逻辑与加法类似
       auto type = inst.getType();
       if(!type->isIntegerTy()) {
         throw std::runtime_error("Not supported sub instr type");
       }
+      // 处理llvm中sp的生成
+      // e.g. %dec2bin_sp = sub i64 %0, %dec2bin_local_framesize
+      if(IsRsp(&inst, function_name)) {
+        // 此处假定op1是从全局变量中加载的，因此一定为temp
+        auto second_operand_temp = temp_map_->at(inst.getOperand(1));
+        instr_list->Append(new assem::OperInstr(
+          "subq `s1,%rsp",
+          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)),
+          new temp::TempList({reg_manager->GetRegister(frame::X64RegManager::Reg::RSP), second_operand_temp}),
+          nullptr
+        ));
+        break;
+      }
+
       auto first_operand_temp = temp_map_->at(inst.getOperand(0));
       auto dst_temp = temp::TempFactory::NewTemp();
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
-        // 第二个参数为常数，翻译为leaq指令
+        // op1: immediate
         // NOTE: 不考虑d0本身为负数的情况，a.k.a --d0
         instr_list->Append(new assem::OperInstr(
           "leaq -" + std::to_string(const_int->getSExtValue()) + "(`s0),`d0",
@@ -186,7 +220,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           nullptr
         ));
       } else {
-        // 第二个参数为临时变量，翻译为subq指令
+        // op1: temp
         auto second_operand_temp = temp_map_->at(inst.getOperand(1));
         auto dst_temp = temp::TempFactory::NewTemp();
         instr_list->Append(new assem::MoveInstr(
@@ -203,7 +237,9 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       }
     }
     break;
+
   case llvm::Instruction::Mul:
+  // res = mul op0, op1
     {
       auto type = inst.getType();
       if(!type->isIntegerTy()) {
@@ -217,7 +253,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         new temp::TempList(first_operand_temp)
       ));
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
-        // 第二个参数为常数，翻译为imulq
+        // op1: immediate
         instr_list->Append(new assem::OperInstr(
           "imulq $" + std::to_string(const_int->getSExtValue()),
           nullptr, // NOTE:暂时置空
@@ -225,7 +261,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           nullptr
         ));
       } else {
-        // 第二个参数为临时变量，翻译为imulq
+        // op1: temp
         auto second_operand_temp = temp_map_->at(inst.getOperand(1));
         instr_list->Append(new assem::OperInstr(
           "imulq `s0",
@@ -244,7 +280,9 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       temp_map_->insert({&inst, dst_temp});
     }
     break;
+
   case llvm::Instruction::SDiv:
+  // res = sdiv op0, op1
     {
       auto type = inst.getType();
       if(!type->isIntegerTy()) {
@@ -264,7 +302,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         nullptr
       ));
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
-        // 第二个参数为常数
+        // op1: immediate
         instr_list->Append(new assem::OperInstr(
           "idivq $" + std::to_string(const_int->getSExtValue()),
           nullptr, 
@@ -272,7 +310,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           nullptr
         ));
       } else {
-        // 第二个参数为临时变量
+        // op1: temp
         auto second_operand_temp = temp_map_->at(inst.getOperand(1));
         instr_list->Append(new assem::OperInstr(
           "idivq `s0",
@@ -293,17 +331,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
 
   // 在x86-64中，不区分指针和整数，因此只需要移动临时变量即可
   case llvm::Instruction::PtrToInt:
-    {
-      auto dst_temp = temp::TempFactory::NewTemp();
-      instr_list->Append(new assem::MoveInstr(
-        "movq `s0,`d0",
-        new temp::TempList(dst_temp),
-        new temp::TempList(temp_map_->at(inst.getOperand(0)))
-      ));
-      temp_map_->insert({&inst, dst_temp});
-    }
-    break;
-  case llvm::Instruction::IntToPtr:
+  // res = ptrtoint op0
     {
       auto dst_temp = temp::TempFactory::NewTemp();
       instr_list->Append(new assem::MoveInstr(
@@ -315,29 +343,43 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
     }
     break;
 
+  case llvm::Instruction::IntToPtr:
+  // res = inttoptr op0
+    {
+      auto dst_temp = temp::TempFactory::NewTemp();
+      instr_list->Append(new assem::MoveInstr(
+        "movq `s0,`d0",
+        new temp::TempList(dst_temp),
+        new temp::TempList(temp_map_->at(inst.getOperand(0)))
+      ));
+      temp_map_->insert({&inst, dst_temp});
+    }
+    break;
 
   case llvm::Instruction::GetElementPtr:
+  // res = getelementptr op0, op1, op2, ...
     {
       auto base_ptr = temp_map_->at(inst.getOperand(0));
       auto dst_temp = temp::TempFactory::NewTemp();
     }
     break;
   case llvm::Instruction::Store:
+  // store op0, op1
     {
-      auto type = inst.getType();
+      auto type = inst.getOperand(1)->getType()->getPointerElementType();
       if(!type->isIntegerTy()) {
         throw std::runtime_error("Not supported store instr type");
       }
       auto dst_temp = temp_map_->at(inst.getOperand(1));
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
-        // store一个常数
+        // op0: immediate
         instr_list->Append(new assem::MoveInstr(
           "movq $" + std::to_string(const_int->getSExtValue()) + ",(`d0)",
           new temp::TempList(dst_temp),
           nullptr
         ));
       } else {
-        // store一个临时变量
+        // op0: temp
         auto src_temp = temp_map_->at(inst.getOperand(0));
         instr_list->Append(new assem::MoveInstr(
           "movq `s0,(`d0)",
@@ -348,7 +390,23 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
     }
   break;
   // case llvm::Instruction::BitCast:
-  // case llvm::Instruction::ZExt:
+  case llvm::Instruction::ZExt:
+  // res = zext op0
+    {
+      auto type = inst.getType();
+      if(!type->isIntegerTy()) {
+        throw std::runtime_error("Not supported zext instr type");
+      }
+      auto dst_temp = temp::TempFactory::NewTemp();
+      // NOTE: 暂时先只处理op0:temp的情况
+      instr_list->Append(new assem::MoveInstr(
+        "movq `s0,`d0",
+        new temp::TempList(dst_temp),
+        new temp::TempList(temp_map_->at(inst.getOperand(0)))
+      ));
+      temp_map_->insert({&inst, dst_temp});
+    }
+    break;
   case llvm::Instruction::Call:
     {
       auto call_inst = llvm::cast<llvm::CallInst>(&inst);
@@ -435,22 +493,28 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
     }
     break;
   case llvm::Instruction::Ret:
+  // ret void
+  // ret op0
     {
-      if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
-        // 返回值为常数
-        instr_list->Append(new assem::MoveInstr(
-          "movq $" + std::to_string(const_int->getSExtValue()) + ",%rax",
-          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
-          nullptr
-        ));
-      } else {
-        auto ret_temp = temp_map_->at(inst.getOperand(0));
-        instr_list->Append(new assem::MoveInstr(
-          "movq `s0,%rax",
-          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
-          new temp::TempList(ret_temp)
-        ));
+      if(inst.getNumOperands() > 0) {
+        // 有返回值
+        if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
+          // 返回值为常数
+          instr_list->Append(new assem::MoveInstr(
+            "movq $" + std::to_string(const_int->getSExtValue()) + ",%rax",
+            new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+            nullptr
+          ));
+        } else {
+          auto ret_temp = temp_map_->at(inst.getOperand(0));
+          instr_list->Append(new assem::MoveInstr(
+            "movq `s0,%rax",
+            new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+            new temp::TempList(ret_temp)
+          ));
+        }
       }
+      
       instr_list->Append(new assem::OperInstr(
         "ret",
         nullptr,
@@ -460,13 +524,107 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
     }
     break;
   case llvm::Instruction::Br:
+  // br label
+  // br cond, true_label, false_label
     {
+      auto br_inst = llvm::cast<llvm::BranchInst>(&inst);
+      if(br_inst->isConditional()) {
+        // 条件分支
+        auto condition = br_inst->getCondition();
+        auto true_label = br_inst->getSuccessor(0);
+        auto false_label = br_inst->getSuccessor(1);
 
+        auto condition_temp = temp_map_->at(condition);
+        instr_list->Append(new assem::OperInstr(
+          "cmpq $1,`s0",
+          nullptr,
+          new temp::TempList(condition_temp),
+          nullptr
+        ));
+        instr_list->Append(new assem::OperInstr(
+          "je " + std::string(true_label->getName()),
+          nullptr,
+          nullptr,
+          nullptr
+        ));
+        // NOTE: 构造OperInstr传入target
+        // TODO: 记录跳转来源
+        instr_list->Append(new assem::OperInstr(
+          "jmp " + std::string(false_label->getName()),
+          nullptr,
+          nullptr,
+          nullptr
+        ));
+      } else {
+        // 无条件分支
+        auto target_label = br_inst->getSuccessor(0);
+        instr_list->Append(new assem::OperInstr(
+          "jmp " + std::string(target_label->getName()),
+          nullptr,
+          nullptr,
+          nullptr
+        ));
+      }
     }
     break;
   case llvm::Instruction::ICmp:
+  // res = icmp COND op0,op1
     {
+      // NOTE: 假设op0: temp, op1: temp/immediate
+      auto icmp_inst = llvm::cast<llvm::ICmpInst>(&inst);
+      auto first_temp = temp_map_->at(icmp_inst->getOperand(0));
+      if(auto const_int_second_operand = llvm::dyn_cast<llvm::ConstantInt>(icmp_inst->getOperand(1))) {
+        // op1: immediate
+        instr_list->Append(new assem::OperInstr(
+          "cmpq `s0,$" + std::to_string(const_int_second_operand->getSExtValue()),
+          nullptr,
+          new temp::TempList(first_temp),
+          nullptr
+        ));
+      } else {
+        // op1: temp
+        auto second_temp = temp_map_->at(icmp_inst->getOperand(1));
+        instr_list->Append(new assem::OperInstr(
+          "cmpq `s0,`s1",
+          nullptr,
+          new temp::TempList({first_temp, second_temp}),
+          nullptr
+        ));
+      }
+      auto res_temp = temp::TempFactory::NewTemp();
+      auto pred = icmp_inst->getPredicate();
+      std::string set_instr;
+      switch(pred) {
+        case llvm::ICmpInst::ICMP_EQ:
+          set_instr = "sete";
+          break;
+        case llvm::ICmpInst::ICMP_NE:
+          set_instr = "setne";
+          break;
+        case llvm::ICmpInst::ICMP_SGT:
+          set_instr = "setg";
+          break;
+        case llvm::ICmpInst::ICMP_SGE:
+          set_instr = "setge";
+          break;
+        case llvm::ICmpInst::ICMP_SLT:
+          set_instr = "setl";
+          break;
+        case llvm::ICmpInst::ICMP_SLE:
+          set_instr = "setle";
+          break;
+        default:
+          throw std::runtime_error("Unsupported icmp predicate");
+      }
 
+      instr_list->Append(new assem::OperInstr(
+        set_instr + " `d0",
+        new temp::TempList(res_temp),
+        nullptr,
+        nullptr
+      ));
+
+      temp_map_->insert({&inst, res_temp});
     }
     break;
   case llvm::Instruction::PHI:
