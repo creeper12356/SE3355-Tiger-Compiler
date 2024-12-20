@@ -40,6 +40,10 @@ private:
   std::list<llvm::BasicBlock *> basicblock_list_;
 };
 
+/**
+ * @brief 执行轨迹，一系列连续执行的基本块
+ * 
+ */
 class Traces {
 public:
   Traces() = delete;

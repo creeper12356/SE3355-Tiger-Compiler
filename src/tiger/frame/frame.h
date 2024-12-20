@@ -24,7 +24,7 @@ public:
   temp::Temp *GetRegister(int regno) { return regs_[regno]; }
 
   /**
-   * Get general-purpose registers except RSI
+   * Get general-purpose registers except RSP
    * NOTE: returned temp list should be in the order of calling convention
    * @return general-purpose registers
    */

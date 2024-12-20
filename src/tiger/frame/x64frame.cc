@@ -148,6 +148,31 @@ frame::Frame *NewFrame(temp::Label *name, std::list<bool> formals) {
 assem::InstrList *ProcEntryExit1(std::string_view function_name,
                                  assem::InstrList *body) {
   // TODO: your lab5 code here
+  auto callee_saved_regs = reg_manager->CalleeSaves()->GetList();
+  // 5.Store instructions to save any callee-saved registers- including the return address register – used within the function
+  for(auto &reg: callee_saved_regs) {
+    body->Insert(
+      body->GetList().begin(),
+      new assem::OperInstr(
+        "pushq `s0",
+        nullptr,
+        new temp::TempList(reg),
+        nullptr
+      )
+    );
+  }
+  // 8.Load instructions to restore the callee-save registers
+  for(auto &reg: callee_saved_regs) {
+    body->Append(
+      new assem::OperInstr(
+        "popq `d0",
+        new temp::TempList(reg),
+        nullptr,
+        nullptr
+      )
+    );
+  }
+
   return body;
 }
 
@@ -175,6 +200,16 @@ assem::Proc *ProcEntryExit3(std::string_view function_name,
   std::string epilogue = "";
 
   // TODO: your lab5 code here
+  // prologue
+  // 1. Pseudo-instructions to announce the beginning of a function;
+  // 2. A label definition of the function name
+  // 3. An instruction to adjust the stack pointer.
+  
+  // epilogue
+  // 9. An instruction to reset the stack pointer (to deallocate the frame)
+  // 10. A return instruction (Jump to the return address)
+  // 11. Pseduo-instructions, as needed, to announce the end of a function
+
   return new assem::Proc(prologue, body, epilogue);
 }
 
