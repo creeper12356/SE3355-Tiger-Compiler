@@ -117,7 +117,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
   // res = load op0
     {
       auto type = inst.getType();
-      if(!type->isIntegerTy()) {
+      if(!type->isIntegerTy() && !type->isPointerTy()) {
         throw std::runtime_error("Not supported load instr type");
       }
       auto dst_temp = temp_map_->at(&inst);
@@ -333,18 +333,85 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
     break;
 
   case llvm::Instruction::GetElementPtr:
-  // res = getelementptr op0, op1, op2, ...
+  // res = getelementptr op0: struct, op1, op2
+  // res = getelementptr op0: int*, op1
+
     {
-      auto base_ptr = temp_map_->at(inst.getOperand(0));
+      // auto base_ptr = temp_map_->at(inst.getOperand(0));
+      auto first_operand = inst.getOperand(0);
+      auto src_temp = temp_map_->at(first_operand);
       auto dst_temp = temp_map_->at(&inst);
-      // TODO: finish gep instr sel
+
+      if(!first_operand->getType()->isPointerTy()) {
+        throw std::runtime_error("Not supported getelementptr instr type");
+      }
+
+      if(first_operand->getType()->getPointerElementType()->isStructTy()) {
+        // 对于结构进行gep操作
+        // NOTE: 暂时认为second_operand, third_operand都为immediate
+        auto struct_ty = llvm::cast<llvm::StructType>(first_operand->getType()->getPointerElementType());
+        auto second_operand = inst.getOperand(1);
+        auto third_operand = inst.getOperand(2);
+
+        auto second_operand_const_int = llvm::cast<llvm::ConstantInt>(second_operand);
+        auto third_operand_const_int = llvm::cast<llvm::ConstantInt>(third_operand);
+
+        // 对于结构体来说，起始位置偏移量应该为0
+        assert(second_operand_const_int->getSExtValue() == 0);
+
+        auto field_index = third_operand_const_int->getSExtValue();
+        
+        const llvm::DataLayout &data_layout = inst.getModule()->getDataLayout();
+        uint64_t align_size = 0; //* 结构体对齐字节数
+
+        for(auto i = 0U; i < struct_ty->getNumElements(); ++i) {
+          auto element_type = struct_ty->getElementType(i);
+          auto element_size = data_layout.getTypeAllocSize(element_type);
+          
+          if(element_size > align_size) {
+            align_size = element_size;
+          }
+        }
+
+        instr_list->Append(new assem::OperInstr(
+          "leaq " + std::to_string(align_size * field_index) + "(`s0),`d0",
+          new temp::TempList(dst_temp),
+          new temp::TempList(src_temp),
+          nullptr
+        ));
+      } else if(first_operand->getType()->getPointerElementType()->isIntegerTy()) {
+        // NOTE: 暂时只实现数组元素类型为i32的情况
+        auto second_operand = inst.getOperand(1);
+        if(auto second_operand_const_int = llvm::dyn_cast<llvm::ConstantInt>(second_operand)) {
+          // op1: immediate
+          auto index = second_operand_const_int->getSExtValue();
+          instr_list->Append(new assem::OperInstr(
+            "leaq " + std::to_string(index * 4) + "(`s0),`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList(src_temp),
+            nullptr
+          ));
+        } else {
+          // op1: temp
+          auto second_operand_temp = temp_map_->at(second_operand);
+          instr_list->Append(new assem::OperInstr(
+            "leaq (`s0,`s1,4),`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList({src_temp, second_operand_temp}),
+            nullptr
+          ));
+        }
+
+      } else {
+        throw std::runtime_error("Not supported getelementptr instr type");
+      }
     }
     break;
   case llvm::Instruction::Store:
   // store op0, op1
     {
       auto type = inst.getOperand(1)->getType()->getPointerElementType();
-      if(!type->isIntegerTy()) {
+      if(!type->isIntegerTy() && !type->isPointerTy()) {
         throw std::runtime_error("Not supported store instr type");
       }
       auto dst_temp = temp_map_->at(inst.getOperand(1));
@@ -552,7 +619,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
           nullptr
         ));
-        
+
         auto target_label = br_inst->getSuccessor(0);
         instr_list->Append(new assem::OperInstr(
           "jmp " + std::string(target_label->getName()),
