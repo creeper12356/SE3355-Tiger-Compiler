@@ -199,16 +199,35 @@ assem::Proc *ProcEntryExit3(std::string_view function_name,
   std::string prologue = "";
   std::string epilogue = "";
 
+  auto function_name_str = std::string(function_name);
+
   // TODO: your lab5 code here
   // prologue
   // 1. Pseudo-instructions to announce the beginning of a function;
+
+  
   // 2. A label definition of the function name
+  auto function_label = function_name_str + ":\n";
+  prologue += function_label;
+
   // 3. An instruction to adjust the stack pointer.
+  auto load_framesize = "movq " + function_name_str + "_framesize_global(%rip),%rax\n";
+  auto set_sp = "subq %rax,%rsp\n";
+  prologue += load_framesize;
+  prologue += set_sp;
   
   // epilogue
   // 9. An instruction to reset the stack pointer (to deallocate the frame)
+  load_framesize = "movq " + function_name_str + "_framesize_global(%rip),%rdi\n";
+  auto reset_sp = "addq %rdi,%rsp\n";
+  epilogue += load_framesize;
+  epilogue += reset_sp;
+
   // 10. A return instruction (Jump to the return address)
+  epilogue += "ret\n";
+
   // 11. Pseduo-instructions, as needed, to announce the end of a function
+
 
   return new assem::Proc(prologue, body, epilogue);
 }

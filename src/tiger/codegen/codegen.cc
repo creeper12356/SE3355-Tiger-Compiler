@@ -493,6 +493,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
     }
     break;
   case llvm::Instruction::Ret:
+  // TODO: 跳转到entryexit3定义的label
   // ret void
   // ret op0
     {
@@ -541,6 +542,12 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           new temp::TempList(condition_temp),
           nullptr
         ));
+        // 为了在phi中追踪跳转来源，在跳转前将bb index移动到%rax
+        instr_list->Append(new assem::MoveInstr(
+          "movq $" + std::to_string(bb_map_->at(bb)),
+          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+          nullptr
+        ));
         instr_list->Append(new assem::OperInstr(
           "je " + std::string(true_label->getName()),
           nullptr,
@@ -548,7 +555,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           nullptr
         ));
         // NOTE: 构造OperInstr传入target
-        // TODO: 记录跳转来源
         instr_list->Append(new assem::OperInstr(
           "jmp " + std::string(false_label->getName()),
           nullptr,
@@ -629,7 +635,72 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
     break;
   case llvm::Instruction::PHI:
     {
+      auto phi_inst = llvm::cast<llvm::PHINode>(&inst);
+      auto dst_temp = temp::TempFactory::NewTemp();
+      auto num_incoming_values = phi_inst->getNumIncomingValues();
+      auto jmp_label_names = std::vector<std::string>();
+      auto end_label_name = std::string(function_name) + "_end";
 
+      // 生成随机并唯一的跳转label列表
+      std::string function_name_str = std::string(function_name);
+      for(int i = 0;i < num_incoming_values; ++i) {
+        auto jmp_label_name = function_name_str + std::to_string(rand());
+        jmp_label_names.push_back(std::move(jmp_label_name));
+      }
+
+      // 生成比较和跳转指令
+      for(int i = 0;i < num_incoming_values; ++i) {
+        instr_list->Append(new assem::OperInstr(
+          "cmpq $" + std::to_string(bb_map_->at(phi_inst->getIncomingBlock(i))) + ",%rax",
+          nullptr,
+          nullptr,
+          nullptr
+        ));
+        instr_list->Append(new assem::OperInstr(
+          "je " + jmp_label_names[i],
+          nullptr,
+          nullptr,
+          // TODO: 后续考虑是否修改
+          new assem::Targets(new std::vector<temp::Label *>{temp::LabelFactory::NamedLabel(jmp_label_names[i])})
+        ));
+      }
+
+      // 生成每个jmp_label的代码
+      for(int i = 0;i < num_incoming_values; ++i) {
+        instr_list->Append(new assem::OperInstr(
+          jmp_label_names[i] + ":",
+          nullptr,
+          nullptr,
+          nullptr
+        ));
+        auto incoming_value = phi_inst->getIncomingValue(i);
+        if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(incoming_value)) {
+          // incoming value: immediate
+          instr_list->Append(new assem::OperInstr(
+            "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
+            new temp::TempList(dst_temp),
+            nullptr,
+            nullptr
+          ));
+        } else {
+          // incoming value: temp
+          auto incoming_value_temp = temp_map_->at(incoming_value);
+          instr_list->Append(new assem::OperInstr(
+            "movq `s0,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList(incoming_value_temp),
+            nullptr
+          ));
+        }
+
+        instr_list->Append(new assem::OperInstr(
+          "jmp `j0",
+          nullptr,
+          nullptr,
+          new assem::Targets(new std::vector<temp::Label *>{temp::LabelFactory::NamedLabel(end_label_name)})
+        ));
+      }
+      temp_map_->insert({&inst, dst_temp});
     }
     break;
   default:
