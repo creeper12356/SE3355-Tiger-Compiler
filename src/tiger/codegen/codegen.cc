@@ -386,7 +386,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           // op1: immediate
           auto index = second_operand_const_int->getSExtValue();
           instr_list->Append(new assem::OperInstr(
-            "leaq " + std::to_string(index * 4) + "(`s0),`d0",
+            "leaq " + std::to_string(index * 8) + "(`s0),`d0",
             new temp::TempList(dst_temp),
             new temp::TempList(src_temp),
             nullptr
@@ -395,7 +395,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           // op1: temp
           auto second_operand_temp = temp_map_->at(second_operand);
           instr_list->Append(new assem::OperInstr(
-            "leaq (`s0,`s1,4),`d0",
+            "leaq (`s0,`s1,8),`d0",
             new temp::TempList(dst_temp),
             new temp::TempList({src_temp, second_operand_temp}),
             nullptr
