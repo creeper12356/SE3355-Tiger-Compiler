@@ -196,11 +196,11 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         break;
       }
 
-      auto first_operand_temp = temp_map_->at(inst.getOperand(0));
       auto dst_temp = temp_map_->at(&inst);
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
-        // op1: immediate
+        // op0: temp, op1: immediate
         // NOTE: 不考虑d0本身为负数的情况，a.k.a --d0
+        auto first_operand_temp = temp_map_->at(inst.getOperand(0));
         instr_list->Append(new assem::OperInstr(
           "leaq -" + std::to_string(const_int->getSExtValue()) + "(`s0),`d0",
           new temp::TempList(dst_temp),
@@ -209,18 +209,38 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         ));
       } else {
         // op1: temp
-        auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-        instr_list->Append(new assem::MoveInstr(
-          "movq `s0,`d0",
-          new temp::TempList(dst_temp),
-          new temp::TempList(first_operand_temp)
-        ));
-        instr_list->Append(new assem::OperInstr(
-          "subq `s1,`d0",
-          new temp::TempList(dst_temp),
-          new temp::TempList({dst_temp, second_operand_temp}),
-          nullptr
-        ));
+        if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
+          // op0: immediate, op1: temp
+          // TODO: add, mul, div都要考虑这种情况，目前都没考虑
+          auto second_operand_temp = temp_map_->at(inst.getOperand(1));
+          instr_list->Append(new assem::MoveInstr(
+            "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
+            new temp::TempList(dst_temp),
+            nullptr
+          ));
+          instr_list->Append(new assem::OperInstr(
+            "subq `s1,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList({dst_temp, second_operand_temp}),
+            nullptr
+          ));
+
+        } else {
+          // op0: temp, op1: temp
+          auto first_operand_temp = temp_map_->at(inst.getOperand(0));
+          auto second_operand_temp = temp_map_->at(inst.getOperand(1));
+          instr_list->Append(new assem::MoveInstr(
+            "movq `s0,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList(first_operand_temp)
+          ));
+          instr_list->Append(new assem::OperInstr(
+            "subq `s1,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList({dst_temp, second_operand_temp}),
+            nullptr
+          ));
+        }
       }
     }
     break;
@@ -735,8 +755,16 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             nullptr,
             nullptr
           ));
+        } else if(llvm::isa<llvm::ConstantPointerNull>(incoming_value)) {
+          // incoming value: nil
+          instr_list->Append(new assem::OperInstr(
+            "movq $0,`d0",
+            new temp::TempList(dst_temp),
+            nullptr,
+            nullptr
+          ));
         } else {
-          // incoming value: temp
+          // incoming value: temp(not null)
           auto incoming_value_temp = temp_map_->at(incoming_value);
           instr_list->Append(new assem::OperInstr(
             "movq `s0,`d0",
