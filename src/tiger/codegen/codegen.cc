@@ -477,7 +477,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX))
         ));
       }
-      
+
     }
     break;
   case llvm::Instruction::Ret:
@@ -532,7 +532,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         ));
         // 为了在phi中追踪跳转来源，在跳转前将bb index移动到%rax
         instr_list->Append(new assem::MoveInstr(
-          "movq $" + std::to_string(bb_map_->at(bb)),
+          "movq $" + std::to_string(bb_map_->at(bb)) + ",%rax",
           new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
           nullptr
         ));
@@ -570,7 +570,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       if(auto const_int_second_operand = llvm::dyn_cast<llvm::ConstantInt>(icmp_inst->getOperand(1))) {
         // op1: immediate
         instr_list->Append(new assem::OperInstr(
-          "cmpq `s0,$" + std::to_string(const_int_second_operand->getSExtValue()),
+          // x86-64实际上根据`s0 - `s1的结果设置CC
+          "cmpq $" + std::to_string(const_int_second_operand->getSExtValue()) + ",`s0",
           nullptr,
           new temp::TempList(first_temp),
           nullptr
@@ -579,7 +580,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         // op1: temp
         auto second_temp = temp_map_->at(icmp_inst->getOperand(1));
         instr_list->Append(new assem::OperInstr(
-          "cmpq `s0,`s1",
+          // x86-64实际上根据`s0 - `s1的结果设置CC
+          "cmpq `s1,`s0",
           nullptr,
           new temp::TempList({first_temp, second_temp}),
           nullptr
@@ -682,6 +684,12 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           new assem::Targets(new std::vector<temp::Label *>{temp::LabelFactory::NamedLabel(end_label_name)})
         ));
       }
+
+      // 追加end_label标签
+      instr_list->Append(new assem::LabelInstr(
+        end_label_name
+      ));
+
     }
     break;
   default:
