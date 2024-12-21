@@ -234,16 +234,17 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       }
       auto first_operand_temp = temp_map_->at(inst.getOperand(0));
       auto dst_temp = temp_map_->at(&inst);
+      // NOTE: 此处的imulq指令是二目的
       instr_list->Append(new assem::MoveInstr(
-        "movq `s0,%rax",
-        new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+        "movq `s0,`d0",
+        new temp::TempList(dst_temp),
         new temp::TempList(first_operand_temp)
       ));
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
         // op1: immediate
         instr_list->Append(new assem::OperInstr(
-          "imulq $" + std::to_string(const_int->getSExtValue()),
-          nullptr, // NOTE:暂时置空
+          "imulq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
+          new temp::TempList(dst_temp),
           nullptr,
           nullptr
         ));
@@ -251,18 +252,12 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         // op1: temp
         auto second_operand_temp = temp_map_->at(inst.getOperand(1));
         instr_list->Append(new assem::OperInstr(
-          "imulq `s0",
-          nullptr,
-          new temp::TempList(second_operand_temp),
+          "imulq `s1,`d0",
+          new temp::TempList(dst_temp),
+          new temp::TempList({dst_temp, second_operand_temp}),
           nullptr
         ));
       }
-      // NOTE: imulq S 将%rax中的值乘以S，结果存入%rdx:%rax，此处暂时不考虑%rdx的溢出部分
-      instr_list->Append(new assem::MoveInstr(
-        "movq %rax,`d0",
-        new temp::TempList(dst_temp),
-        new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX))
-      ));
     }
     break;
 
@@ -551,6 +546,13 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         ));
       } else {
         // 无条件分支
+        // 为了在phi中追踪跳转来源，在跳转前将bb index移动到%rax
+        instr_list->Append(new assem::MoveInstr(
+          "movq $" + std::to_string(bb_map_->at(bb)) + ",%rax",
+          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+          nullptr
+        ));
+        
         auto target_label = br_inst->getSuccessor(0);
         instr_list->Append(new assem::OperInstr(
           "jmp " + std::string(target_label->getName()),
