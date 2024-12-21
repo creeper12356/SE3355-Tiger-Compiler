@@ -170,6 +170,10 @@ assem::InstrList *ProcEntryExit1(std::string_view function_name,
     ++ temps_iter;
   }
 
+
+  // 创建一个返回的标签，所有return语句跳转到它
+  body->Append(new assem::LabelInstr(std::string(function_name) + "_ret"));
+
   // 8.Load instructions to restore the callee-save registers
   temps_iter = temps.begin();
   for(auto &reg: callee_saved_regs) {
@@ -235,9 +239,8 @@ assem::Proc *ProcEntryExit3(std::string_view function_name,
   epilogue += reset_sp;
 
   // 10. A return instruction (Jump to the return address)
-  epilogue += function_name_str + "_ret:\n";
-  epilogue += "ret\n";
-
+  epilogue += "retq\n";
+  
   // 11. Pseduo-instructions, as needed, to announce the end of a function
 
 
