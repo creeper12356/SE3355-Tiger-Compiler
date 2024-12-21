@@ -149,28 +149,39 @@ assem::InstrList *ProcEntryExit1(std::string_view function_name,
                                  assem::InstrList *body) {
   // TODO: your lab5 code here
   auto callee_saved_regs = reg_manager->CalleeSaves()->GetList();
+  // 用来保存calle saved register的临时变量列表
+  auto temps = std::vector<temp::Temp *>();
+  for(auto& callee_saved_reg: callee_saved_regs) {
+    temps.push_back(temp::TempFactory::NewTemp());
+  }
+
   // 5.Store instructions to save any callee-saved registers- including the return address register – used within the function
+  auto temps_iter = temps.begin();
   for(auto &reg: callee_saved_regs) {
     body->Insert(
       body->GetList().begin(),
-      new assem::OperInstr(
-        "pushq `s0",
-        nullptr,
-        new temp::TempList(reg),
-        nullptr
+      new assem::MoveInstr(
+        "movq `s0,`d0",
+        new temp::TempList((*temps_iter)),
+        new temp::TempList(reg)
       )
     );
+    
+    ++ temps_iter;
   }
+
   // 8.Load instructions to restore the callee-save registers
+  temps_iter = temps.begin();
   for(auto &reg: callee_saved_regs) {
     body->Append(
-      new assem::OperInstr(
-        "popq `d0",
+      new assem::MoveInstr(
+        "movq `s0,`d0",
         new temp::TempList(reg),
-        nullptr,
-        nullptr
+        new temp::TempList((*temps_iter))
       )
     );
+
+    ++ temps_iter;
   }
 
   return body;
@@ -224,6 +235,7 @@ assem::Proc *ProcEntryExit3(std::string_view function_name,
   epilogue += reset_sp;
 
   // 10. A return instruction (Jump to the return address)
+  epilogue += function_name_str + "_ret:\n";
   epilogue += "ret\n";
 
   // 11. Pseduo-instructions, as needed, to announce the end of a function

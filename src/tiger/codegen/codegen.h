@@ -54,7 +54,7 @@ public:
 
   /**
    * @brief 代码生成的主入口
-   * 
+   * @details 指令选择函数，base-block-wise
    * @param instr_list output 待修改的汇编指令列表
    * @param inst input 一条llvm指令
    * @param function_name input 函数名称

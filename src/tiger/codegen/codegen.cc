@@ -120,7 +120,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       if(!type->isIntegerTy()) {
         throw std::runtime_error("Not supported load instr type");
       }
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
       if(auto global_var = llvm::dyn_cast<llvm::GlobalVariable>(inst.getOperand(0))) {
         // op0: global var
         instr_list->Append(new assem::MoveInstr(
@@ -137,8 +137,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           new temp::TempList(src_temp)
         ));
       }
-
-      temp_map_->insert({&inst, dst_temp});
     }
     break;
   case llvm::Instruction::Add:
@@ -156,7 +154,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       } else {
         first_operand_temp = temp_map_->at(inst.getOperand(0));
       }
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
         // op1: immediate
         instr_list->Append(new assem::OperInstr(
@@ -168,7 +166,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       } else {
         // op1: temp
         auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-        auto dst_temp = temp::TempFactory::NewTemp();
         instr_list->Append(new assem::MoveInstr(
           "movq `s0,`d0",
           new temp::TempList(dst_temp),
@@ -181,8 +178,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           nullptr
         ));
       }
-
-      temp_map_->insert({&inst, dst_temp});
     }
     break;
   
@@ -197,19 +192,12 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       // 处理llvm中sp的生成
       // e.g. %dec2bin_sp = sub i64 %0, %dec2bin_local_framesize
       if(IsRsp(&inst, function_name)) {
-        // 此处假定op1是从全局变量中加载的，因此一定为temp
-        auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-        instr_list->Append(new assem::OperInstr(
-          "subq `s1,%rsp",
-          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)),
-          new temp::TempList({reg_manager->GetRegister(frame::X64RegManager::Reg::RSP), second_operand_temp}),
-          nullptr
-        ));
+        // 忽略，因为已经在Codegen中处理过了，后续所有xx_sp可以直接替换为%rsp
         break;
       }
 
       auto first_operand_temp = temp_map_->at(inst.getOperand(0));
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
         // op1: immediate
         // NOTE: 不考虑d0本身为负数的情况，a.k.a --d0
@@ -222,7 +210,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       } else {
         // op1: temp
         auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-        auto dst_temp = temp::TempFactory::NewTemp();
         instr_list->Append(new assem::MoveInstr(
           "movq `s0,`d0",
           new temp::TempList(dst_temp),
@@ -246,7 +233,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         throw std::runtime_error("Not supported mul instr type");
       }
       auto first_operand_temp = temp_map_->at(inst.getOperand(0));
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
       instr_list->Append(new assem::MoveInstr(
         "movq `s0,%rax",
         new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
@@ -276,8 +263,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         new temp::TempList(dst_temp),
         new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX))
       ));
-
-      temp_map_->insert({&inst, dst_temp});
     }
     break;
 
@@ -289,7 +274,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         throw std::runtime_error("Not supported sdiv instr type");
       }
       auto first_operand_temp = temp_map_->at(inst.getOperand(0));
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
       instr_list->Append(new assem::MoveInstr(
         "movq `s0,%rax",
         new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
@@ -324,8 +309,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         new temp::TempList(dst_temp),
         new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX))
       ));
-
-      temp_map_->insert({&inst, dst_temp});
     }
     break;
 
@@ -333,26 +316,24 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
   case llvm::Instruction::PtrToInt:
   // res = ptrtoint op0
     {
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
       instr_list->Append(new assem::MoveInstr(
         "movq `s0,`d0",
         new temp::TempList(dst_temp),
         new temp::TempList(temp_map_->at(inst.getOperand(0)))
       ));
-      temp_map_->insert({&inst, dst_temp});
     }
     break;
 
   case llvm::Instruction::IntToPtr:
   // res = inttoptr op0
     {
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
       instr_list->Append(new assem::MoveInstr(
         "movq `s0,`d0",
         new temp::TempList(dst_temp),
         new temp::TempList(temp_map_->at(inst.getOperand(0)))
       ));
-      temp_map_->insert({&inst, dst_temp});
     }
     break;
 
@@ -360,7 +341,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
   // res = getelementptr op0, op1, op2, ...
     {
       auto base_ptr = temp_map_->at(inst.getOperand(0));
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
+      // TODO: finish gep instr sel
     }
     break;
   case llvm::Instruction::Store:
@@ -397,14 +379,13 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       if(!type->isIntegerTy()) {
         throw std::runtime_error("Not supported zext instr type");
       }
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
       // NOTE: 暂时先只处理op0:temp的情况
       instr_list->Append(new assem::MoveInstr(
         "movq `s0,`d0",
         new temp::TempList(dst_temp),
         new temp::TempList(temp_map_->at(inst.getOperand(0)))
       ));
-      temp_map_->insert({&inst, dst_temp});
     }
     break;
   case llvm::Instruction::Call:
@@ -413,8 +394,11 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       auto regs = reg_manager->ArgRegs();
       auto reg_tmp_iter = regs->GetList().begin();
       auto arg_iter = call_inst->arg_begin();
-      // 跳过sp
-      ++ arg_iter;
+      // 如果llvm指令中调用函数的第一个传参是sp（调用自定义函数），则跳过sp
+      // 否则（调用库函数）不跳过
+      if(IsRsp(arg_iter->get(), function_name)) {
+        ++ arg_iter;
+      }
 
       // 寄存器传参
       for(; arg_iter != call_inst->arg_end() &&
@@ -430,7 +414,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           ));
         } else {
           // 临时变量参数
-          auto temp = temp_map_->at(arg);
+          auto temp = IsRsp(arg, function_name) ? reg_manager->GetRegister(frame::X64RegManager::Reg::RSP) : temp_map_->at(arg);
           instr_list->Append(new assem::MoveInstr(
             "movq `s0,`d0",
             new temp::TempList(*reg_tmp_iter),
@@ -453,6 +437,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
               nullptr
             ));
             // NOTE: 此处不需要将dest_temp加入temp_map，因为后续不会用到这个临时变量
+            // TODO: 模拟器没有实现pushq指令，需要修改
             instr_list->Append(new assem::OperInstr(
               "pushq `s0",
               nullptr,
@@ -482,18 +467,20 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         nullptr
       ));
 
+      // 如果函数有返回值
       // 将%rax中的返回值存入临时变量
-      auto res_temp = temp::TempFactory::NewTemp();
-      instr_list->Append(new assem::MoveInstr(
-        "movq %rax,`d0",
-        new temp::TempList(res_temp),
-        new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX))
-      ));
-      temp_map_->insert({&inst, res_temp});
+      if(!call_inst->getType()->isVoidTy()) {
+        auto res_temp = temp_map_->at(&inst);
+        instr_list->Append(new assem::MoveInstr(
+          "movq %rax,`d0",
+          new temp::TempList(res_temp),
+          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX))
+        ));
+      }
+      
     }
     break;
   case llvm::Instruction::Ret:
-  // TODO: 跳转到entryexit3定义的label
   // ret void
   // ret op0
     {
@@ -516,11 +503,12 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         }
       }
       
+      std::string ret_label_name = std::string(function_name) + "_ret";
       instr_list->Append(new assem::OperInstr(
-        "ret",
+        "jmp " + ret_label_name,
         nullptr,
         nullptr,
-        nullptr
+        new assem::Targets(new std::vector<temp::Label *>({temp::LabelFactory::NamedLabel(ret_label_name)}))
       ));
     }
     break;
@@ -597,7 +585,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           nullptr
         ));
       }
-      auto res_temp = temp::TempFactory::NewTemp();
+      auto res_temp = temp_map_->at(&inst);
       auto pred = icmp_inst->getPredicate();
       std::string set_instr;
       switch(pred) {
@@ -629,22 +617,19 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         nullptr,
         nullptr
       ));
-
-      temp_map_->insert({&inst, res_temp});
     }
     break;
   case llvm::Instruction::PHI:
     {
       auto phi_inst = llvm::cast<llvm::PHINode>(&inst);
-      auto dst_temp = temp::TempFactory::NewTemp();
+      auto dst_temp = temp_map_->at(&inst);
       auto num_incoming_values = phi_inst->getNumIncomingValues();
       auto jmp_label_names = std::vector<std::string>();
-      auto end_label_name = std::string(function_name) + "_end";
+      auto end_label_name = std::string(bb->getName().data()) + "_end";
 
       // 生成随机并唯一的跳转label列表
-      std::string function_name_str = std::string(function_name);
       for(int i = 0;i < num_incoming_values; ++i) {
-        auto jmp_label_name = function_name_str + std::to_string(rand());
+        auto jmp_label_name = bb->getName().data() + std::to_string(rand());
         jmp_label_names.push_back(std::move(jmp_label_name));
       }
 
@@ -667,11 +652,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
 
       // 生成每个jmp_label的代码
       for(int i = 0;i < num_incoming_values; ++i) {
-        instr_list->Append(new assem::OperInstr(
-          jmp_label_names[i] + ":",
-          nullptr,
-          nullptr,
-          nullptr
+        instr_list->Append(new assem::LabelInstr(
+          jmp_label_names[i]
         ));
         auto incoming_value = phi_inst->getIncomingValue(i);
         if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(incoming_value)) {
@@ -700,7 +682,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           new assem::Targets(new std::vector<temp::Label *>{temp::LabelFactory::NamedLabel(end_label_name)})
         ));
       }
-      temp_map_->insert({&inst, dst_temp});
     }
     break;
   default:
