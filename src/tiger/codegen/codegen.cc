@@ -146,17 +146,17 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       if(!type->isIntegerTy()) {
         throw std::runtime_error("Not supported add instr type");
       }
-      // NOTE: 此处假定第一个参数为临时变量
+
       // NOTE: 生成的llvm中，只有add指令可能用到xxx_sp，且总是第一个参数
-      temp::Temp *first_operand_temp = nullptr;
-      if(IsRsp(inst.getOperand(0), function_name)) {
-        first_operand_temp = reg_manager->GetRegister(frame::X64RegManager::Reg::RSP);
-      } else {
-        first_operand_temp = temp_map_->at(inst.getOperand(0));
-      }
       auto dst_temp = temp_map_->at(&inst);
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
-        // op1: immediate
+        // op0: temp, op1: immediate
+        temp::Temp *first_operand_temp = nullptr;
+        if(IsRsp(inst.getOperand(0), function_name)) {
+          first_operand_temp = reg_manager->GetRegister(frame::X64RegManager::Reg::RSP);
+        } else {
+          first_operand_temp = temp_map_->at(inst.getOperand(0));
+        }
         instr_list->Append(new assem::OperInstr(
           "leaq " + std::to_string(const_int->getSExtValue()) + "(`s0),`d0",
           new temp::TempList(dst_temp),
@@ -165,18 +165,43 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         ));
       } else {
         // op1: temp
-        auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-        instr_list->Append(new assem::MoveInstr(
-          "movq `s0,`d0",
-          new temp::TempList(dst_temp),
-          new temp::TempList(first_operand_temp)
-        ));
-        instr_list->Append(new assem::OperInstr(
-          "addq `s1,`d0",
-          new temp::TempList(dst_temp),
-          new temp::TempList({dst_temp, second_operand_temp}),
-          nullptr
-        ));
+        if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
+          // op0: immediate, op1: temp
+          auto second_operand_temp = temp_map_->at(inst.getOperand(1));
+          instr_list->Append(new assem::MoveInstr(
+            "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
+            new temp::TempList(dst_temp),
+            nullptr
+          ));
+          instr_list->Append(new assem::OperInstr(
+            "addq `s1,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList({dst_temp, second_operand_temp}),
+            nullptr
+          ));
+
+        } else {
+          // op0: temp, op1: temp
+          // NOTE: 代码重复，考虑合并
+          temp::Temp *first_operand_temp = nullptr;
+          if(IsRsp(inst.getOperand(0), function_name)) {
+            first_operand_temp = reg_manager->GetRegister(frame::X64RegManager::Reg::RSP);
+          } else {
+            first_operand_temp = temp_map_->at(inst.getOperand(0));
+          }
+          auto second_operand_temp = temp_map_->at(inst.getOperand(1));
+          instr_list->Append(new assem::MoveInstr(
+            "movq `s0,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList(first_operand_temp)
+          ));
+          instr_list->Append(new assem::OperInstr(
+            "addq `s1,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList({dst_temp, second_operand_temp}),
+            nullptr
+          ));
+        }
       }
     }
     break;
@@ -211,7 +236,6 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         // op1: temp
         if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
           // op0: immediate, op1: temp
-          // TODO: add, mul, div都要考虑这种情况，目前都没考虑
           auto second_operand_temp = temp_map_->at(inst.getOperand(1));
           instr_list->Append(new assem::MoveInstr(
             "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
@@ -252,16 +276,16 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       if(!type->isIntegerTy()) {
         throw std::runtime_error("Not supported mul instr type");
       }
-      auto first_operand_temp = temp_map_->at(inst.getOperand(0));
       auto dst_temp = temp_map_->at(&inst);
       // NOTE: 此处的imulq指令是二目的
-      instr_list->Append(new assem::MoveInstr(
-        "movq `s0,`d0",
-        new temp::TempList(dst_temp),
-        new temp::TempList(first_operand_temp)
-      ));
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
-        // op1: immediate
+        // op0: temp, op1: immediate
+        auto first_operand_temp = temp_map_->at(inst.getOperand(0));
+        instr_list->Append(new assem::MoveInstr(
+          "movq `s0,`d0",
+          new temp::TempList(dst_temp),
+          new temp::TempList(first_operand_temp)
+        ));
         instr_list->Append(new assem::OperInstr(
           "imulq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
           new temp::TempList(dst_temp),
@@ -270,13 +294,37 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         ));
       } else {
         // op1: temp
-        auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-        instr_list->Append(new assem::OperInstr(
-          "imulq `s1,`d0",
-          new temp::TempList(dst_temp),
-          new temp::TempList({dst_temp, second_operand_temp}),
-          nullptr
-        ));
+        if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
+          // op0: immediate, op1: temp
+          auto second_operand_temp = temp_map_->at(inst.getOperand(1));
+          instr_list->Append(new assem::MoveInstr(
+            "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
+            new temp::TempList(dst_temp),
+            nullptr
+          ));
+          instr_list->Append(new assem::OperInstr(
+            "imulq `s1,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList(second_operand_temp),
+            nullptr
+          ));
+
+        } else {
+          // op0: temp, op1: temp
+          auto first_operand_temp = temp_map_->at(inst.getOperand(0));
+          auto second_operand_temp = temp_map_->at(inst.getOperand(1));
+          instr_list->Append(new assem::MoveInstr(
+            "movq `s0,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList(first_operand_temp)
+          ));
+          instr_list->Append(new assem::OperInstr(
+            "imulq `s1,`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList({dst_temp, second_operand_temp}),
+            nullptr
+          ));
+        }
       }
     }
     break;
@@ -288,13 +336,24 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       if(!type->isIntegerTy()) {
         throw std::runtime_error("Not supported sdiv instr type");
       }
-      auto first_operand_temp = temp_map_->at(inst.getOperand(0));
       auto dst_temp = temp_map_->at(&inst);
-      instr_list->Append(new assem::MoveInstr(
-        "movq `s0,%rax",
-        new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
-        new temp::TempList(first_operand_temp)
-      ));
+      if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
+        // op0: immediate
+        instr_list->Append(new assem::MoveInstr(
+          "movq $" + std::to_string(const_int->getSExtValue()) + ",%rax",
+          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+          nullptr
+        ));
+      } else {
+        auto first_operand_temp = temp_map_->at(inst.getOperand(0));
+        instr_list->Append(new assem::MoveInstr(
+          "movq `s0,%rax",
+          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+          new temp::TempList(first_operand_temp)
+        ));
+      }
+
+      // 将%rax中的值扩展到%rdx:%rax
       instr_list->Append(new assem::OperInstr(
         "cqto",
         nullptr,
