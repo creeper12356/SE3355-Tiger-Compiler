@@ -474,7 +474,7 @@ public:
 class VarDec : public Dec {
 public:
   sym::Symbol *var_;
-  sym::Symbol *typ_;
+  sym::Symbol *typ_; // nullable
   Exp *init_;
   bool escape_;
 

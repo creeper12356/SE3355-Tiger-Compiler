@@ -86,7 +86,21 @@ public:
   explicit InFrameAccess(int offset, frame::Frame *parent)
       : offset(offset), parent_frame(parent) {}
 
-  /* TODO: Put your lab5-part1 code here */
+  llvm::Value *ToLLVMVal(llvm::Value *sp) override {
+    auto local_framesize_val = ir_builder->CreateLoad(
+      ir_builder->getInt64Ty(),
+      parent_frame->framesize_global
+    );
+    auto add_val_1 = ir_builder->CreateAdd(
+      local_framesize_val,
+      llvm::ConstantInt::get(ir_builder->getInt64Ty(), offset)
+    );
+    auto add_val_2 = ir_builder->CreateAdd(
+      sp,
+      add_val_1
+    );
+    return add_val_2;
+  }
 };
 
 class X64Frame : public Frame {
@@ -114,7 +128,14 @@ public:
 };
 
 frame::Frame *NewFrame(temp::Label *name, std::list<bool> formals) {
-  /* TODO: Put your lab5-part1 code here */
+  auto formal_access_list = new std::list<frame::Access *>();
+  auto new_frame = new X64Frame(name, formal_access_list);
+  auto formal_cnt = formals.size();
+  for(size_t i = 0;i < formal_cnt; ++i) {
+    // NOTE: 忽略逃逸分析结果，全部假定通过栈传参
+    formal_access_list->push_back(new InFrameAccess((i + 1) * 8, new_frame));
+  }
+  return new_frame;
 }
 
 /**
@@ -127,6 +148,46 @@ frame::Frame *NewFrame(temp::Label *name, std::list<bool> formals) {
 assem::InstrList *ProcEntryExit1(std::string_view function_name,
                                  assem::InstrList *body) {
   // TODO: your lab5 code here
+  auto callee_saved_regs = reg_manager->CalleeSaves()->GetList();
+  // 用来保存calle saved register的临时变量列表
+  auto temps = std::vector<temp::Temp *>();
+  for(auto& callee_saved_reg: callee_saved_regs) {
+    temps.push_back(temp::TempFactory::NewTemp());
+  }
+
+  // 5.Store instructions to save any callee-saved registers- including the return address register – used within the function
+  auto temps_iter = temps.begin();
+  for(auto &reg: callee_saved_regs) {
+    body->Insert(
+      body->GetList().begin(),
+      new assem::MoveInstr(
+        "movq `s0,`d0",
+        new temp::TempList((*temps_iter)),
+        new temp::TempList(reg)
+      )
+    );
+    
+    ++ temps_iter;
+  }
+
+
+  // 创建一个返回的标签，所有return语句跳转到它
+  body->Append(new assem::LabelInstr(std::string(function_name) + "_ret"));
+
+  // 8.Load instructions to restore the callee-save registers
+  temps_iter = temps.begin();
+  for(auto &reg: callee_saved_regs) {
+    body->Append(
+      new assem::MoveInstr(
+        "movq `s0,`d0",
+        new temp::TempList(reg),
+        new temp::TempList((*temps_iter))
+      )
+    );
+
+    ++ temps_iter;
+  }
+
   return body;
 }
 
@@ -153,7 +214,36 @@ assem::Proc *ProcEntryExit3(std::string_view function_name,
   std::string prologue = "";
   std::string epilogue = "";
 
+  auto function_name_str = std::string(function_name);
+
   // TODO: your lab5 code here
+  // prologue
+  // 1. Pseudo-instructions to announce the beginning of a function;
+
+  
+  // 2. A label definition of the function name
+  auto function_label = function_name_str + ":\n";
+  prologue += function_label;
+
+  // 3. An instruction to adjust the stack pointer.
+  auto load_framesize = "movq " + function_name_str + "_framesize_global(%rip),%rax\n";
+  auto set_sp = "subq %rax,%rsp\n";
+  prologue += load_framesize;
+  prologue += set_sp;
+  
+  // epilogue
+  // 9. An instruction to reset the stack pointer (to deallocate the frame)
+  load_framesize = "movq " + function_name_str + "_framesize_global(%rip),%rdi\n";
+  auto reset_sp = "addq %rdi,%rsp\n";
+  epilogue += load_framesize;
+  epilogue += reset_sp;
+
+  // 10. A return instruction (Jump to the return address)
+  epilogue += "retq\n";
+  
+  // 11. Pseduo-instructions, as needed, to announce the end of a function
+
+
   return new assem::Proc(prologue, body, epilogue);
 }
 

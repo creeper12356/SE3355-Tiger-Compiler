@@ -30,6 +30,10 @@ bool Ty::IsSameType(Ty *expected) {
   return a == b;
 }
 
+bool Ty::IsStrictSameType(Ty *expected) {
+  return ActualTy() == expected->ActualTy();
+}
+
 llvm::Type *Ty::GetLLVMType() {
   assert(0);
   return NULL;
@@ -52,6 +56,7 @@ void StringTy::InitStringLLVMType() {
 
 llvm::Type *StringTy::GetLLVMType() {
   if (string_llvm_type_ == nullptr) {
+    // 未生成过String的LLVM定义，初始化
     InitStringLLVMType();
   }
   return string_ptr_llvm_type_;
