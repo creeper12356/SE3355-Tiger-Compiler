@@ -39,7 +39,7 @@ public:
 private:
   std::string code_;
   std::unique_ptr<cg::AssemInstr> assem_instr_;
-
+  std::unique_ptr<ra::Result> result_;
 };
 
 } // namespace ra
