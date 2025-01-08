@@ -23,11 +23,22 @@ public:
   Result(Result &&result) = delete;
   Result &operator=(const Result &result) = delete;
   Result &operator=(Result &&result) = delete;
-  ~Result();
+  ~Result() {}
 };
 
 class RegAllocator {
   /* TODO: Put your lab6 code here */
+public:
+    // ra::RegAllocator reg_allocator(body_->getName().str(),
+                                  //  std::move(assem_instr));
+  RegAllocator(std::string code, std::unique_ptr<cg::AssemInstr> assem_instr)
+      : code_(code), assem_instr_(std::move(assem_instr)) {}
+  void RegAlloc();
+  std::unique_ptr<ra::Result> TransferResult();
+
+private:
+  std::string code_;
+  std::unique_ptr<cg::AssemInstr> assem_instr_;
 
 };
 

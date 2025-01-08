@@ -123,18 +123,20 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       auto dst_temp = temp_map_->at(&inst);
       if(auto global_var = llvm::dyn_cast<llvm::GlobalVariable>(inst.getOperand(0))) {
         // op0: global var
-        instr_list->Append(new assem::MoveInstr(
+        instr_list->Append(new assem::OperInstr(
           "movq " + global_var->getName().str() + "(%rip),`d0",
           new temp::TempList(dst_temp),
+          nullptr,
           nullptr
         ));
       } else {
         // op0: temp
         auto src_temp = temp_map_->at(inst.getOperand(0));
-        instr_list->Append(new assem::MoveInstr(
+        instr_list->Append(new assem::OperInstr(
           "movq (`s0),`d0",
           new temp::TempList(dst_temp),
-          new temp::TempList(src_temp)
+          new temp::TempList(src_temp),
+          nullptr
         ));
       }
     }
@@ -168,9 +170,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
           // op0: immediate, op1: temp
           auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-          instr_list->Append(new assem::MoveInstr(
+          instr_list->Append(new assem::OperInstr(
             "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
             new temp::TempList(dst_temp),
+            nullptr,
             nullptr
           ));
           instr_list->Append(new assem::OperInstr(
@@ -237,9 +240,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
           // op0: immediate, op1: temp
           auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-          instr_list->Append(new assem::MoveInstr(
+          instr_list->Append(new assem::OperInstr(
             "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
             new temp::TempList(dst_temp),
+            nullptr,
             nullptr
           ));
           instr_list->Append(new assem::OperInstr(
@@ -289,7 +293,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         instr_list->Append(new assem::OperInstr(
           "imulq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
           new temp::TempList(dst_temp),
-          nullptr,
+          new temp::TempList(dst_temp),
           nullptr
         ));
       } else {
@@ -297,15 +301,16 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
           // op0: immediate, op1: temp
           auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-          instr_list->Append(new assem::MoveInstr(
+          instr_list->Append(new assem::OperInstr(
             "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
             new temp::TempList(dst_temp),
+            nullptr,
             nullptr
           ));
           instr_list->Append(new assem::OperInstr(
             "imulq `s1,`d0",
             new temp::TempList(dst_temp),
-            new temp::TempList(second_operand_temp),
+            new temp::TempList({dst_temp, second_operand_temp}),
             nullptr
           ));
 
@@ -339,9 +344,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       auto dst_temp = temp_map_->at(&inst);
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
         // op0: immediate
-        instr_list->Append(new assem::MoveInstr(
+        instr_list->Append(new assem::OperInstr(
           "movq $" + std::to_string(const_int->getSExtValue()) + ",%rax",
           new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+          nullptr,
           nullptr
         ));
       } else {
@@ -356,16 +362,16 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       // 将%rax中的值扩展到%rdx:%rax
       instr_list->Append(new assem::OperInstr(
         "cqto",
-        nullptr,
-        nullptr,
+        new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RDX)),
+        new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
         nullptr
       ));
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
         // op1: immediate
         instr_list->Append(new assem::OperInstr(
           "idivq $" + std::to_string(const_int->getSExtValue()),
-          nullptr, 
-          nullptr,
+          new temp::TempList({reg_manager->GetRegister(frame::X64RegManager::Reg::RAX), reg_manager->GetRegister(frame::X64RegManager::Reg::RDX)}),
+          new temp::TempList({reg_manager->GetRegister(frame::X64RegManager::Reg::RAX), reg_manager->GetRegister(frame::X64RegManager::Reg::RDX)}),
           nullptr
         ));
       } else {
@@ -373,8 +379,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         auto second_operand_temp = temp_map_->at(inst.getOperand(1));
         instr_list->Append(new assem::OperInstr(
           "idivq `s0",
-          nullptr,
-          new temp::TempList(second_operand_temp),
+          new temp::TempList({reg_manager->GetRegister(frame::X64RegManager::Reg::RAX), reg_manager->GetRegister(frame::X64RegManager::Reg::RDX)}),
+          new temp::TempList({second_operand_temp, reg_manager->GetRegister(frame::X64RegManager::Reg::RAX), reg_manager->GetRegister(frame::X64RegManager::Reg::RDX)}),
           nullptr
         ));
       }
@@ -496,18 +502,20 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       auto dst_temp = temp_map_->at(inst.getOperand(1));
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
         // op0: immediate
-        instr_list->Append(new assem::MoveInstr(
-          "movq $" + std::to_string(const_int->getSExtValue()) + ",(`d0)",
+        instr_list->Append(new assem::OperInstr(
+          "movq $" + std::to_string(const_int->getSExtValue()) + ",(`s0)",
+          nullptr,
           new temp::TempList(dst_temp),
           nullptr
         ));
       } else {
         // op0: temp
         auto src_temp = temp_map_->at(inst.getOperand(0));
-        instr_list->Append(new assem::MoveInstr(
-          "movq `s0,(`d0)",
-          new temp::TempList(dst_temp),
-          new temp::TempList(src_temp)
+        instr_list->Append(new assem::OperInstr(
+          "movq `s0,(`s1)",
+          nullptr,
+          new temp::TempList({src_temp, dst_temp}),
+          nullptr
         ));
       }
     }
@@ -535,6 +543,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       auto regs = reg_manager->ArgRegs();
       auto reg_tmp_iter = regs->GetList().begin();
       auto arg_iter = call_inst->arg_begin();
+
+      auto call_src_lst = new temp::TempList();
+      auto call_dst_lst = reg_manager->CallerSaves();
+
       // 如果llvm指令中调用函数的第一个传参是sp（调用自定义函数），则跳过sp
       // 否则（调用库函数）不跳过
       if(IsRsp(arg_iter->get(), function_name)) {
@@ -548,9 +560,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         llvm::Value *arg = arg_iter->get();
         if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(arg)) {
           // 常数参数
-          instr_list->Append(new assem::MoveInstr(
+          instr_list->Append(new assem::OperInstr(
             "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
             new temp::TempList(*reg_tmp_iter),
+            nullptr,
             nullptr
           ));
         } else {
@@ -562,6 +575,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
             new temp::TempList(temp)
           ));
         }
+        call_src_lst->Append(*reg_tmp_iter);
       }
 
       // 栈传参
@@ -572,9 +586,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(arg)) {
             // 常数参数，先将常数移到寄存器
             auto dest_temp = temp::TempFactory::NewTemp();
-            instr_list->Append(new assem::MoveInstr(
+            instr_list->Append(new assem::OperInstr(
               "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
               new temp::TempList(dest_temp),
+              nullptr,
               nullptr
             ));
             // NOTE: 此处不需要将dest_temp加入temp_map，因为后续不会用到这个临时变量
@@ -603,8 +618,8 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       // 调用函数对应的label
       instr_list->Append(new assem::OperInstr(
         "call " + std::string(call_inst->getCalledFunction()->getName()),
-        nullptr,
-        nullptr,
+        call_dst_lst,
+        call_src_lst,
         nullptr
       ));
 
@@ -629,9 +644,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         // 有返回值
         if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
           // 返回值为常数
-          instr_list->Append(new assem::MoveInstr(
+          instr_list->Append(new assem::OperInstr(
             "movq $" + std::to_string(const_int->getSExtValue()) + ",%rax",
             new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+            nullptr,
             nullptr
           ));
         } else {
@@ -672,30 +688,32 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           nullptr
         ));
         // 为了在phi中追踪跳转来源，在跳转前将bb index移动到%rax
-        instr_list->Append(new assem::MoveInstr(
+        instr_list->Append(new assem::OperInstr(
           "movq $" + std::to_string(bb_map_->at(bb)) + ",%rax",
           new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+          nullptr,
           nullptr
         ));
         instr_list->Append(new assem::OperInstr(
           "je " + std::string(true_label->getName()),
           nullptr,
           nullptr,
-          nullptr
+          new assem::Targets(new std::vector<temp::Label *>{temp::LabelFactory::NamedLabel(true_label->getName())})
         ));
         // NOTE: 构造OperInstr传入target
         instr_list->Append(new assem::OperInstr(
           "jmp " + std::string(false_label->getName()),
           nullptr,
           nullptr,
-          nullptr
+          new assem::Targets(new std::vector<temp::Label *>{temp::LabelFactory::NamedLabel(false_label->getName())})
         ));
       } else {
         // 无条件分支
         // 为了在phi中追踪跳转来源，在跳转前将bb index移动到%rax
-        instr_list->Append(new assem::MoveInstr(
+        instr_list->Append(new assem::OperInstr(
           "movq $" + std::to_string(bb_map_->at(bb)) + ",%rax",
           new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
+          nullptr,
           nullptr
         ));
 
@@ -704,7 +722,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           "jmp " + std::string(target_label->getName()),
           nullptr,
           nullptr,
-          nullptr
+          new assem::Targets(new std::vector<temp::Label *>{temp::LabelFactory::NamedLabel(target_label->getName())})
         ));
       }
     }
@@ -788,14 +806,13 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         instr_list->Append(new assem::OperInstr(
           "cmpq $" + std::to_string(bb_map_->at(phi_inst->getIncomingBlock(i))) + ",%rax",
           nullptr,
-          nullptr,
+          new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RAX)),
           nullptr
         ));
         instr_list->Append(new assem::OperInstr(
           "je " + jmp_label_names[i],
           nullptr,
           nullptr,
-          // TODO: 后续考虑是否修改
           new assem::Targets(new std::vector<temp::Label *>{temp::LabelFactory::NamedLabel(jmp_label_names[i])})
         ));
       }
@@ -825,11 +842,10 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         } else {
           // incoming value: temp(not null)
           auto incoming_value_temp = temp_map_->at(incoming_value);
-          instr_list->Append(new assem::OperInstr(
+          instr_list->Append(new assem::MoveInstr(
             "movq `s0,`d0",
             new temp::TempList(dst_temp),
-            new temp::TempList(incoming_value_temp),
-            nullptr
+            new temp::TempList(incoming_value_temp)
           ));
         }
 
