@@ -109,6 +109,7 @@ public:
   // Set operation on two lists
   NodeList<T> *Union(NodeList<T> *nl);
   NodeList<T> *Diff(NodeList<T> *nl);
+  NodeList<T> *Union(Node<T> *n);
 
   [[nodiscard]] const std::list<Node<T> *> &GetList() const {
     return node_list_;
@@ -221,6 +222,17 @@ template <typename T> NodeList<T> *NodeList<T>::Union(NodeList<T> *nl) {
   for (auto node : nl->GetList()) {
     if (!res->Contain(node))
       res->Append(node);
+  }
+  return res;
+}
+
+template <typename T> NodeList<T> *NodeList<T>::Union(Node<T> *n) {
+  NodeList<T> *res = new NodeList<T>();
+  for (auto node : node_list_) {
+    res->Append(node);
+  }
+  if(!res->Contain(n)) {
+    res->Append(n);
   }
   return res;
 }

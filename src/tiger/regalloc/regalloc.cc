@@ -195,9 +195,9 @@ void RegAllocator::DecrementDegree(live::INodePtr node) {
         EnableMoves(neighbor_nodes);
         spill_worklist_.DeleteNode(node);
         if(MoveRelated(node)) {
-            freeze_worklist_.Append(node);
+            freeze_worklist_ = *freeze_worklist_.Union(node);
         } else {
-            simplify_worklist_.Append(node);
+            simplify_worklist_ = *simplify_worklist_.Union(node);
         }
     }
 }
@@ -210,7 +210,7 @@ void RegAllocator::EnableMoves(live::INodeListPtr nodes) {
         for(auto move: node_moves_list) {
             if(active_moves_->Contain(move.first, move.second)) {
                 active_moves_->Delete(move.first, move.second);
-                worklist_moves_->Append(move.first, move.second);
+                worklist_moves_ = worklist_moves_->Union(node_moves);
             }
         }
     }
@@ -238,10 +238,14 @@ void RegAllocator::Coalesce() {
     }    
     worklist_moves_->Delete(move.first, move.second);
     if(u == v) {
-        coalesced_moves_->Append(move.first, move.second);
+        auto new_move_list = new live::MoveList();
+        new_move_list->Append(move.first, move.second);
+        coalesced_moves_ = coalesced_moves_->Union(new_move_list);
         AddWorkList(u);
     } else if(precolored_.Contain(v) || adj_set_.find({u, v}) != adj_set_.end()) {
-        constrained_moves_->Append(move.first, move.second);
+        auto new_move_list = new live::MoveList();
+        new_move_list->Append(move.first, move.second);
+        constrained_moves_ = constrained_moves_->Union(new_move_list);
         AddWorkList(u);
         AddWorkList(v);
     } else if(precolored_.Contain(u)) {
@@ -255,17 +259,23 @@ void RegAllocator::Coalesce() {
         }
 
         if(all_ok) {
-            coalesced_moves_->Append(move.first, move.second);
+            auto new_move_list = new live::MoveList();
+            new_move_list->Append(move.first, move.second);
+            coalesced_moves_ = coalesced_moves_->Union(new_move_list);
             Combine(u, v);
             AddWorkList(u);
         }
     } else if(!precolored_.Contain(v) && Conservative(Adjacent(u)->Union(Adjacent(v)))) {
         // Same
-        coalesced_moves_->Append(move.first, move.second);
+        auto new_move_list = new live::MoveList();
+        new_move_list->Append(move.first, move.second);
+        coalesced_moves_ = coalesced_moves_->Union(new_move_list);
         Combine(u, v);
         AddWorkList(u);
     } else {
-        active_moves_->Append(move.first, move.second);
+        auto new_move_list = new live::MoveList();
+        new_move_list->Append(move.first, move.second);
+        active_moves_ = active_moves_->Union(new_move_list);
     }
 }
 
@@ -295,7 +305,7 @@ void RegAllocator::AddWorkList(live::INodePtr node) {
         && !MoveRelated(node)
         && degree_map_[node] < phy_reg_cnt) {
         freeze_worklist_.DeleteNode(node);
-        simplify_worklist_.Append(node);
+        simplify_worklist_ = *simplify_worklist_.Union(node);
     }
 }
 
@@ -313,7 +323,7 @@ void RegAllocator::Combine(live::INodePtr u, live::INodePtr v) {
     } else {
         spill_worklist_.DeleteNode(v);
     }
-    coalesced_nodes_.Append(v);
+    coalesced_nodes_ = *coalesced_nodes_.Union(v);
     alias_map_[v] = u;
     move_list_map_[u] = move_list_map_[u]->Union(move_list_map_[v]);
     auto v_inode_list = live::INodeList();
@@ -329,14 +339,14 @@ void RegAllocator::Combine(live::INodePtr u, live::INodePtr v) {
     int phy_reg_cnt = reg_manager->Registers()->GetList().size();
     if(degree_map_[u] >= phy_reg_cnt && freeze_worklist_.Contain(u)) {
         freeze_worklist_.DeleteNode(u);
-        spill_worklist_.Append(u);
+        spill_worklist_ = *spill_worklist_.Union(u);
     }
 }
 
 void RegAllocator::Freeze() {
     auto node = freeze_worklist_.GetList().back();
     freeze_worklist_.DeleteNode(node);
-    simplify_worklist_.Append(node);
+    simplify_worklist_ = *simplify_worklist_.Union(node);
     FreezeMoves(node);
 }
 
@@ -352,11 +362,13 @@ void RegAllocator::FreezeMoves(live::INodePtr node) {
         }
 
         active_moves_->Delete(move.first, move.second);
-        frozen_moves_->Append(move.first, move.second);
+        auto new_move_list = new live::MoveList();
+        new_move_list->Append(move.first, move.second);
+        frozen_moves_ = frozen_moves_->Union(new_move_list);
         int phy_reg_cnt = reg_manager->Registers()->GetList().size();
         if(NodeMoves(v)->GetList().size() == 0 && degree_map_[v] < phy_reg_cnt) {
             freeze_worklist_.DeleteNode(v);
-            simplify_worklist_.Append(v);
+            simplify_worklist_ = *simplify_worklist_.Union(v);
         }
     }
 }
@@ -365,7 +377,7 @@ void RegAllocator::SelectSpill() {
     // TODO: 启发式选择一个溢出节点
     auto node = spill_worklist_.GetList().back();
     spill_worklist_.DeleteNode(node);
-    simplify_worklist_.Append(node);
+    simplify_worklist_ = *simplify_worklist_.Union(node);
     FreezeMoves(node);
 }
 

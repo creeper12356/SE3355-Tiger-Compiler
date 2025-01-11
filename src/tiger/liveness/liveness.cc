@@ -54,7 +54,7 @@ void LiveGraphFactory::LiveMap() {
   bool is_stable;
   do {
     is_stable = true;
-    
+
     for(const auto &instr_node: instr_nodes) {
       auto in = in_->Look(instr_node);
       auto out = out_->Look(instr_node);
@@ -143,7 +143,9 @@ void LiveGraphFactory::InterfGraph() {
     if(auto move_instr = dynamic_cast<assem::MoveInstr *>(instr_node->NodeInfo())) {
       auto dst_node = temp_node_map_->Look(move_instr->dst_->GetList().front());
       auto src_node = temp_node_map_->Look(move_instr->src_->GetList().front());
-      live_graph_.moves->Append(src_node, dst_node);
+      auto new_moves = new MoveList();
+      new_moves->Append(src_node, dst_node);
+      live_graph_.moves = live_graph_.moves->Union(new_moves);
     }
   }
 }
