@@ -2,14 +2,23 @@
 
 #include "tiger/output/logger.h"
 #include <iostream>
+#include <set>
 
 extern frame::RegManager *reg_manager;
 extern std::map<std::string, std::pair<int, int>> frame_info_map;
 
 namespace ra {
-/* TODO: Put your lab6 code here */
 void RegAllocator::RegAlloc() {
-    // TODO: 清理状态（尾递归需要）
+    RegAllocMain();
+    auto coloring = temp::Map::Empty();
+    for(auto color: color_map_) {
+        coloring->Enter(color.first->NodeInfo(), reg_manager->temp_map_->Look(color.second));
+    }
+    
+    result_ = std::make_unique<Result>(coloring, assem_instr_->GetInstrList());
+}
+
+void RegAllocator::RegAllocMain() {
     // 构造控制流图
     auto flowgraph = BuildCFG();
 
@@ -45,11 +54,17 @@ void RegAllocator::RegAlloc() {
         }
     }
 
-    // 初始化degree_map_和move_list_map_和alias_map_
+    // 初始化degree_map_和move_list_map_和alias_map_和color_map_
     for(auto node: live_graph_nodes) {
         degree_map_.insert({node, node->Degree()});
         move_list_map_.insert({node, new live::MoveList()});
         alias_map_.insert({node, node});
+        if(precolored_.Contain(node)) {
+            // precolored_中的节点已经着色
+            color_map_.insert({node, node->NodeInfo()});
+        } else {
+            color_map_.insert({node, nullptr});
+        }
     }
     auto worklist_moves_list = worklist_moves_->GetList();
     for(auto move: worklist_moves_list) {
@@ -76,8 +91,11 @@ void RegAllocator::RegAlloc() {
     );
     
     AssignColors();
-
-    // rewrite program
+    if(spilled_nodes_.GetList().size() > 0) {
+        RewriteProgram();
+        // 尾递归
+        RegAlloc();
+    }
 }
 
 std::unique_ptr<ra::Result> RegAllocator::TransferResult() {
@@ -85,7 +103,7 @@ std::unique_ptr<ra::Result> RegAllocator::TransferResult() {
 }
 
 void RegAllocator::AddEdge(live::INodePtr u, live::INodePtr v) {
-    if(!adj_set_.contains({u, v}) && u != v) {
+    if(adj_set_.find({u, v}) == adj_set_.end() && u != v) {
         adj_set_.insert({u, v});
         adj_set_.insert({v, u});
 
@@ -213,7 +231,7 @@ void RegAllocator::Coalesce() {
     if(u == v) {
         coalesced_moves_->Append(move.first, move.second);
         AddWorkList(u);
-    } else if(precolored_.Contain(v) || adj_set_.contains({u, v})) {
+    } else if(precolored_.Contain(v) || adj_set_.find({u, v}) != adj_set_.end()) {
         constrained_moves_->Append(move.first, move.second);
         AddWorkList(u);
         AddWorkList(v);
@@ -246,7 +264,7 @@ bool RegAllocator::OK(live::INodePtr t, live::INodePtr r) {
     int phy_reg_cnt = reg_manager->Registers()->GetList().size();
     return degree_map_[t] < phy_reg_cnt ||
         precolored_.Contain(t) || 
-        adj_set_.contains({t, r});
+        adj_set_.find({t, r}) != adj_set_.end();
 }
 
 bool RegAllocator::Conservative(live::INodeListPtr nodes) {
@@ -335,11 +353,94 @@ void RegAllocator::FreezeMoves(live::INodePtr node) {
 }
 
 void RegAllocator::SelectSpill() {
-    // TODO
+    // TODO: 启发式选择一个溢出节点
+    auto node = spill_worklist_.GetList().back();
+    spill_worklist_.DeleteNode(node);
+    simplify_worklist_.Append(node);
+    FreezeMoves(node);
 }
 
 void RegAllocator::AssignColors() {
-    // TODO
+    auto select_stack = this->select_stack_.GetList();
+    while(!select_stack.empty()) {
+        auto node = select_stack.back();
+        select_stack.pop_back();
+        auto ok_colors = reg_manager->Registers();
+
+        auto adj_nodes = node->Adj()->GetList();
+        for(auto adj_node: adj_nodes) {
+            if(colored_nodes_.Union(&precolored_)->Contain(GetAlias(adj_node))) {
+                ok_colors->Delete(color_map_[GetAlias(adj_node)]);
+            }
+        }
+
+        if(ok_colors->GetList().empty()) {
+            spilled_nodes_.Append(node);
+        } else {
+            colored_nodes_.Append(node);
+            auto color = ok_colors->GetList().front();
+            color_map_[node] = color;
+        }
+    }
+
+    auto coalesced_nodes = coalesced_nodes_.GetList();
+    for(auto node: coalesced_nodes) {
+        color_map_[node] = color_map_[GetAlias(node)];
+    }
+
+    select_stack_.Clear();
+}
+
+void RegAllocator::RewriteProgram() {
+    auto instr_list = assem_instr_->GetInstrList();
+    auto spilled_nodes = spilled_nodes_.GetList();
+    for(auto spilled_node: spilled_nodes) {
+        for(auto iter = instr_list->GetList().begin(); iter != instr_list->GetList().end(); ++iter) {
+            auto instr = *iter;
+            auto use = instr->Use();
+            auto def = instr->Def();
+            if(use->Contain(spilled_node->NodeInfo())) {
+                auto new_temp = temp::TempFactory::NewTemp();
+                instr_list->Insert(iter, new assem::OperInstr(
+                    // TODO: 修改为正确的偏移
+                    "movq `100(`s0),`d0",
+                    new temp::TempList(new_temp),
+                    new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)),
+                    nullptr
+                ));
+                if(auto oper_instr = dynamic_cast<assem::OperInstr *>(instr)) {
+                    oper_instr->src_->Replace(spilled_node->NodeInfo(), new_temp);
+                } else if(auto move_instr = dynamic_cast<assem::MoveInstr *>(instr)) {
+                    move_instr->src_->Replace(spilled_node->NodeInfo(), new_temp);
+                } else {
+                    assert(false);
+                }
+            }
+
+            if(def->Contain(spilled_node->NodeInfo())) {
+                auto new_temp = temp::TempFactory::NewTemp();
+                instr_list->Insert(std::next(iter), new assem::OperInstr(
+                    "movq `s0,`100(`s1)",
+                    nullptr,
+                    new temp::TempList({new_temp, reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)}),
+                    nullptr
+                ));
+                if(auto oper_instr = dynamic_cast<assem::OperInstr *>(instr)) {
+                    oper_instr->dst_->Replace(spilled_node->NodeInfo(), new_temp);
+                } else if(auto move_instr = dynamic_cast<assem::MoveInstr *>(instr)) {
+                    move_instr->dst_->Replace(spilled_node->NodeInfo(), new_temp);
+                } else {
+                    assert(false);
+                }
+            }
+        }
+    }
+
+    spilled_nodes_.Clear();
+    // initial_ = colored_nodes_.Union(&coalesced_nodes_)->Union(new_temps);
+    colored_nodes_.Clear();
+    coalesced_nodes_.Clear();
+    
 }
 
 live::INodeListPtr RegAllocator::Adjacent(live::INodePtr node) {

@@ -37,6 +37,7 @@ public:
   std::unique_ptr<ra::Result> TransferResult();
   
 private:
+  void RegAllocMain();
   void AddEdge(live::INodePtr u, live::INodePtr v);
   fg::FGraphPtr BuildCFG();
   void MakeWorklist();
@@ -54,6 +55,7 @@ private:
   void SelectSpill();
 
   void AssignColors();
+  void RewriteProgram();
 
   live::INodeListPtr Adjacent(live::INodePtr node);
   live::MoveList *NodeMoves(live::INodePtr node) ;
@@ -88,6 +90,7 @@ private:
   std::map<live::INodePtr, int> degree_map_;
   std::map<live::INodePtr, live::MoveList *> move_list_map_;
   std::map<live::INodePtr, live::INodePtr> alias_map_;
+  std::map<live::INodePtr, temp::Temp *> color_map_;
 
 };
 

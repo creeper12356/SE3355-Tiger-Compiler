@@ -102,8 +102,12 @@ void CodeGen::Codegen() {
 }
 
 void AssemInstr::Print(FILE *out, temp::Map *map) const {
-  for (auto instr : instr_list_->GetList())
+  int index = 0;
+  map->DumpMap(out);
+  for (auto instr : instr_list_->GetList()) {
     instr->Print(out, map);
+    ++ index;
+  }
   fprintf(out, "\n");
 }
 

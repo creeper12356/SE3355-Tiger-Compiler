@@ -159,6 +159,9 @@ void ProcFrag::OutputAssem(FILE *out, OutputPhase phase, bool need_ra) const {
     allocation = reg_allocator.TransferResult();
     il = allocation->il_;
     color = temp::Map::LayerMap(reg_manager->temp_map_, allocation->coloring_);
+    std::cout << "coloring: " << std::endl;
+    color->DumpMap(stdout);
+    std::cout << "---" << std::endl;
   }
 
   std::string proc_name = body_->getName().str();
