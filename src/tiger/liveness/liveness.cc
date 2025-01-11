@@ -51,8 +51,10 @@ void LiveGraphFactory::LiveMap() {
     out_->Enter(instr_node, new temp::TempList());
   }
 
-  bool is_stable = true;
+  bool is_stable;
   do {
+    is_stable = true;
+    
     for(const auto &instr_node: instr_nodes) {
       auto in = in_->Look(instr_node);
       auto out = out_->Look(instr_node);
@@ -66,11 +68,31 @@ void LiveGraphFactory::LiveMap() {
         new_out = new_out->Union(in_->Look(succ));
       }
 
-      is_stable = in->Equal(new_in) && out->Equal(new_out);
+      is_stable = is_stable && in->Equal(new_in) && out->Equal(new_out);
       in_->Enter(instr_node, new_in);
       out_->Enter(instr_node, new_out);
     }
   } while(!is_stable);
+  
+  in_->Dump([](fg::FNodePtr node, temp::TempList *tl) {
+    auto map = temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name());
+    node->NodeInfo()->Print(stdout, map);
+    printf("in: ");
+    for(auto temp: tl->GetList()) {
+      printf("%s ", map->Look(temp)->c_str());
+    }
+    printf("\n\n");
+  });
+
+  out_->Dump([](fg::FNodePtr node, temp::TempList *tl) {
+    auto map = temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name());
+    node->NodeInfo()->Print(stdout, map);
+    printf("out: ");
+    for(auto temp: tl->GetList()) {
+      printf("%s ", map->Look(temp)->c_str());
+    }
+    printf("\n\n");
+  });
 }
 
 void LiveGraphFactory::InterfGraph() {

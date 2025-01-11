@@ -42,7 +42,7 @@ void RegAllocator::RegAllocMain() {
             precolored_.Append(node);
         } else {
             initial_.Append(node);
-        }    
+        }
     }
 
     worklist_moves_ = live_graph_.moves;
