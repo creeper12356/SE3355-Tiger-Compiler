@@ -465,7 +465,8 @@ void RegAllocator::RewriteProgram() {
 }
 
 live::INodeListPtr RegAllocator::Adjacent(live::INodePtr node) {
-    return node->Adj()->Diff(select_stack_.Union(&coalesced_nodes_));
+    // NOTE: 需要去除precolored_中的节点
+    return node->Adj()->Diff(select_stack_.Union(&coalesced_nodes_))->Diff(&precolored_);
 }
 
 live::MoveList *RegAllocator::NodeMoves(live::INodePtr node) {
