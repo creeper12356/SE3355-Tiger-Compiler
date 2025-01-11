@@ -79,19 +79,19 @@ void LiveGraphFactory::InterfGraph() {
   // 为每个临时变量创建一个节点，
   // 并建立临时变量到节点的映射
   for(const auto &instr_node: instr_nodes) {
-    auto in = in_->Look(instr_node)->GetList();
-    auto out = out_->Look(instr_node)->GetList();
+    auto use = instr_node->NodeInfo()->Use() ? instr_node->NodeInfo()->Use()->GetList() : std::list<temp::Temp *>();
+    auto def = instr_node->NodeInfo()->Def() ? instr_node->NodeInfo()->Def()->GetList() : std::list<temp::Temp *>();
 
-    for(auto in_temp: in) {
-      if(temp_node_map_->Look(in_temp) == nullptr) {
-        auto new_node = live_graph_.interf_graph->NewNode(in_temp);
-        temp_node_map_->Enter(in_temp, new_node);
+    for(auto use_temp: use) {
+      if(temp_node_map_->Look(use_temp) == nullptr) {
+        auto new_node = live_graph_.interf_graph->NewNode(use_temp);
+        temp_node_map_->Enter(use_temp, new_node);
       }
     }
-    for(auto out_temp: out) {
-      if(temp_node_map_->Look(out_temp) == nullptr) {
-        auto new_node = live_graph_.interf_graph->NewNode(out_temp);
-        temp_node_map_->Enter(out_temp, new_node);
+    for(auto def_temp: def) {
+      if(temp_node_map_->Look(def_temp) == nullptr) {
+        auto new_node = live_graph_.interf_graph->NewNode(def_temp);
+        temp_node_map_->Enter(def_temp, new_node);
       }
     }
   }

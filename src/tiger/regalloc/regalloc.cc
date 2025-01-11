@@ -14,19 +14,27 @@ void RegAllocator::RegAlloc() {
     for(auto color: color_map_) {
         coloring->Enter(color.first->NodeInfo(), reg_manager->temp_map_->Look(color.second));
     }
-    
+    coloring->DumpMap(stdout);
     result_ = std::make_unique<Result>(coloring, assem_instr_->GetInstrList());
 }
 
 void RegAllocator::RegAllocMain() {
     // 构造控制流图
     auto flowgraph = BuildCFG();
+    fg::FGraph::Show(stdout, flowgraph->Nodes(), [](assem::Instr *instr) {
+        auto map = temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name());
+        instr->Print(stdout, map);
+    });
 
     // 根据控制流图，构造活跃相干图
     live::LiveGraphFactory live_graph_factory(flowgraph);
     live_graph_factory.Liveness();
     live_graph_ = live_graph_factory.GetLiveGraph();
     auto live_graph_nodes = live_graph_.interf_graph->Nodes()->GetList();
+    live::IGraph::Show(stdout,live_graph_.interf_graph->Nodes(), [](temp::Temp *temp) {
+        auto map = temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name());
+        printf("%s", map->Look(temp)->data());
+    });
     
     // 初始化相干图中precolored_和initial_
     for(auto node: live_graph_nodes) {
@@ -209,6 +217,7 @@ void RegAllocator::EnableMoves(live::INodeListPtr nodes) {
 }
 
 void RegAllocator::Simplify() {
+    assert(simplify_worklist_.GetList().size() > 0);
     auto node = simplify_worklist_.GetList().back();
     simplify_worklist_.DeleteNode(node);
     select_stack_.Append(node);

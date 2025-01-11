@@ -145,6 +145,7 @@ void ProcFrag::OutputAssem(FILE *out, OutputPhase phase, bool need_ra) const {
     cg::CodeGen code_gen(std::move(traces));
     code_gen.Codegen();
     assem_instr = code_gen.TransferAssemInstr();
+    color->DumpMap(stdout);
     TigerLog(assem_instr.get(), color);
   }
 
@@ -159,9 +160,6 @@ void ProcFrag::OutputAssem(FILE *out, OutputPhase phase, bool need_ra) const {
     allocation = reg_allocator.TransferResult();
     il = allocation->il_;
     color = temp::Map::LayerMap(reg_manager->temp_map_, allocation->coloring_);
-    std::cout << "coloring: " << std::endl;
-    color->DumpMap(stdout);
-    std::cout << "---" << std::endl;
   }
 
   std::string proc_name = body_->getName().str();
@@ -180,6 +178,7 @@ void ProcFrag::OutputAssem(FILE *out, OutputPhase phase, bool need_ra) const {
   // prologue
   fprintf(out, "%s", proc->prolog_.data());
   // body
+  color->DumpMap(stdout);
   proc->body_->Print(out, color);
   // epilog_
   fprintf(out, "%s", proc->epilog_.data());
