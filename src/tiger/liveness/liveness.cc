@@ -106,12 +106,20 @@ void LiveGraphFactory::InterfGraph() {
 
     for(auto use_temp: use) {
       if(temp_node_map_->Look(use_temp) == nullptr) {
+        if(use_temp == reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)) {
+          instr_node->NodeInfo()->Print(stdout, temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name()));
+          continue;
+        }
         auto new_node = live_graph_.interf_graph->NewNode(use_temp);
         temp_node_map_->Enter(use_temp, new_node);
       }
     }
     for(auto def_temp: def) {
       if(temp_node_map_->Look(def_temp) == nullptr) {
+        if(def_temp == reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)) {
+          instr_node->NodeInfo()->Print(stdout, temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name()));
+          continue;
+        }
         auto new_node = live_graph_.interf_graph->NewNode(def_temp);
         temp_node_map_->Enter(def_temp, new_node);
       }

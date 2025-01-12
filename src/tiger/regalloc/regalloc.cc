@@ -505,9 +505,9 @@ void RegAllocator::RewriteProgram() {
             if(use && use->Contain(spilled_node->NodeInfo())) {
                 auto new_temp = temp::TempFactory::NewTemp();
                 instr_list->Insert(iter, new assem::OperInstr(
-                    "movq " + std::to_string(spill_offset) + "(`s0),`d0",
+                    "movq " + std::to_string(spill_offset) + "(%rsp),`d0",
                     new temp::TempList(new_temp),
-                    new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)),
+                    nullptr,
                     nullptr
                 ));
 
@@ -523,9 +523,9 @@ void RegAllocator::RewriteProgram() {
             if(def && def->Contain(spilled_node->NodeInfo())) {
                 auto new_temp = temp::TempFactory::NewTemp();
                 instr_list->Insert(std::next(iter), new assem::OperInstr(
-                    "movq `s0," + std::to_string(spill_offset) + "(`s1)",
+                    "movq `s0," + std::to_string(spill_offset) + "(%rsp)",
                     nullptr,
-                    new temp::TempList({new_temp, reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)}),
+                    new temp::TempList(new_temp),
                     nullptr
                 ));
 

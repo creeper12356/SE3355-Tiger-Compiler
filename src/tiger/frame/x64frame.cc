@@ -69,7 +69,7 @@ temp::TempList *X64RegManager::CalleeSaves() {
 
 temp::TempList *X64RegManager::ReturnSink() {
   temp::TempList *temp_list = CalleeSaves();
-  temp_list->Append(regs_[SP]);
+  // temp_list->Append(regs_[SP]);
   temp_list->Append(regs_[RV]);
   return temp_list;
 }

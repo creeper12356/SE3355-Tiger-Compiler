@@ -734,8 +734,15 @@ tr::ValAndTy *RecordExp::Translate(env::VEnvPtr venv, env::TEnvPtr tenv,
       {ir_builder->getInt32(0), ir_builder->getInt32(index)}
     );
     auto record_field_exp_val = efield->exp_->Translate(venv, tenv, level, errormsg)->val_;
+    if(record_field_ptr->getType()->isPointerTy() && 
+    !record_field_ptr->getType()->getPointerElementType()->isIntegerTy() &&
+    record_field_exp_val->getType()->isIntegerTy()) {
+      // 处理record字段为nil的情况
+      record_field_exp_val = ir_builder->CreateIntToPtr(record_field_exp_val, record_field_ptr->getType()->getPointerElementType());
+    }
 
     ir_builder->CreateStore(record_field_exp_val, record_field_ptr);
+
     ++ index;
   }
   return new tr::ValAndTy(record_ptr, record_ty, ir_builder->GetInsertBlock());

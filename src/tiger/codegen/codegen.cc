@@ -54,15 +54,13 @@ void CodeGen::Codegen() {
     auto last_sp = temp::TempFactory::NewTemp();
     list->Append(
         new assem::OperInstr("movq %rsp,`d0", new temp::TempList(last_sp),
-                             new temp::TempList(reg_manager->GetRegister(
-                                 frame::X64RegManager::Reg::RSP)),
+                             nullptr,
                              nullptr));
     list->Append(new assem::OperInstr(
         "addq $" + std::string(traces_->GetFunctionName()) +
             "_framesize_local,`s0",
         new temp::TempList(last_sp),
-        new temp::TempList({last_sp, reg_manager->GetRegister(
-                                         frame::X64RegManager::Reg::RSP)}),
+        new temp::TempList(last_sp),
         nullptr));
     while (arg_iter != traces_->GetBody()->arg_end()) {
       auto tmp = temp::TempFactory::NewTemp();
@@ -157,18 +155,22 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       auto dst_temp = temp_map_->at(&inst);
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
         // op0: temp, op1: immediate
-        temp::Temp *first_operand_temp = nullptr;
         if(IsRsp(inst.getOperand(0), function_name)) {
-          first_operand_temp = reg_manager->GetRegister(frame::X64RegManager::Reg::RSP);
+          instr_list->Append(new assem::OperInstr(
+            "leaq " + std::to_string(const_int->getSExtValue()) + "(%rsp),`d0",
+            new temp::TempList(dst_temp),
+            nullptr,
+            nullptr
+          ));
         } else {
-          first_operand_temp = temp_map_->at(inst.getOperand(0));
+          temp::Temp *first_operand_temp = temp_map_->at(inst.getOperand(0));
+          instr_list->Append(new assem::OperInstr(
+            "leaq " + std::to_string(const_int->getSExtValue()) + "(`s0),`d0",
+            new temp::TempList(dst_temp),
+            new temp::TempList(first_operand_temp),
+            nullptr
+          ));
         }
-        instr_list->Append(new assem::OperInstr(
-          "leaq " + std::to_string(const_int->getSExtValue()) + "(`s0),`d0",
-          new temp::TempList(dst_temp),
-          new temp::TempList(first_operand_temp),
-          nullptr
-        ));
       } else {
         // op1: temp
         if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(0))) {
@@ -190,18 +192,23 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         } else {
           // op0: temp, op1: temp
           // NOTE: 代码重复，考虑合并
-          temp::Temp *first_operand_temp = nullptr;
           if(IsRsp(inst.getOperand(0), function_name)) {
-            first_operand_temp = reg_manager->GetRegister(frame::X64RegManager::Reg::RSP);
+            // NOTE: 不能合并到rsp
+            instr_list->Append(new assem::OperInstr(
+              "movq %rsp,`d0",
+              new temp::TempList(dst_temp),
+              nullptr,
+              nullptr
+            ));
           } else {
-            first_operand_temp = temp_map_->at(inst.getOperand(0));
+            temp::Temp *first_operand_temp = temp_map_->at(inst.getOperand(0));
+            instr_list->Append(new assem::MoveInstr(
+              "movq `s0,`d0",
+              new temp::TempList(dst_temp),
+              new temp::TempList(first_operand_temp)
+            ));
           }
           auto second_operand_temp = temp_map_->at(inst.getOperand(1));
-          instr_list->Append(new assem::MoveInstr(
-            "movq `s0,`d0",
-            new temp::TempList(dst_temp),
-            new temp::TempList(first_operand_temp)
-          ));
           instr_list->Append(new assem::OperInstr(
             "addq `s1,`d0",
             new temp::TempList(dst_temp),
@@ -519,6 +526,14 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           new temp::TempList(dst_temp),
           nullptr
         ));
+      } else if(auto null = llvm::dyn_cast<llvm::ConstantPointerNull>(inst.getOperand(0))) {
+        // op0: null
+        instr_list->Append(new assem::OperInstr(
+          "movq $0,(`s0)",
+          nullptr,
+          new temp::TempList(dst_temp),
+          nullptr
+        ));
       } else {
         // op0: temp
         auto src_temp = temp_map_->at(inst.getOperand(0));
@@ -545,6 +560,12 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
         "movq `s0,`d0",
         new temp::TempList(dst_temp),
         new temp::TempList(temp_map_->at(inst.getOperand(0)))
+      ));
+      instr_list->Append(new assem::OperInstr(
+        "andq $0x1,`d0",
+        new temp::TempList(dst_temp),
+        new temp::TempList(dst_temp),
+        nullptr
       ));
     }
     break;
@@ -579,12 +600,20 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           ));
         } else {
           // 临时变量参数
-          auto temp = IsRsp(arg, function_name) ? reg_manager->GetRegister(frame::X64RegManager::Reg::RSP) : temp_map_->at(arg);
-          instr_list->Append(new assem::MoveInstr(
-            "movq `s0,`d0",
-            new temp::TempList(*reg_tmp_iter),
-            new temp::TempList(temp)
-          ));
+          if(IsRsp(arg, function_name)) {
+            instr_list->Append(new assem::OperInstr(
+              "movq %rsp,`d0",
+              new temp::TempList(*reg_tmp_iter),
+              nullptr,
+              nullptr
+            ));
+          } else {
+            instr_list->Append(new assem::MoveInstr(
+              "movq `s0,`d0",
+              new temp::TempList(*reg_tmp_iter),
+              new temp::TempList(temp_map_->at(arg))
+            ));
+          }
         }
         call_src_lst->Append(*reg_tmp_iter);
       }
