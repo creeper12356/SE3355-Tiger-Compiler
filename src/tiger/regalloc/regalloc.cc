@@ -15,7 +15,24 @@ void RegAllocator::RegAlloc() {
         coloring->Enter(color.first->NodeInfo(), reg_manager->temp_map_->Look(color.second));
     }
     coloring->DumpMap(stdout);
-    result_ = std::make_unique<Result>(coloring, assem_instr_->GetInstrList());
+    // 删除无用的move指令
+    auto instr_list = assem_instr_->GetInstrList();
+    auto instr_list_list = instr_list->GetList();
+    auto useless_move_instr_list = std::vector<assem::MoveInstr *>();
+    for(auto instr: instr_list_list) {
+        if(auto move_instr = dynamic_cast<assem::MoveInstr *>(instr)) {
+            if(move_instr->dst_->GetList().size() == 1 && move_instr->src_->GetList().size() == 1) {
+                if(coloring->Look(move_instr->dst_->GetList().front()) == coloring->Look(move_instr->src_->GetList().front())) {
+                    // 两个不同的临时寄存器着色相同，删除这个move指令
+                    useless_move_instr_list.push_back(move_instr);
+                }
+            }
+        }
+    }
+    for(auto move_instr: useless_move_instr_list) {
+        instr_list->Remove(move_instr);
+    }
+    result_ = std::make_unique<Result>(coloring, instr_list);
 }
 
 void RegAllocator::RegAllocMain() {
