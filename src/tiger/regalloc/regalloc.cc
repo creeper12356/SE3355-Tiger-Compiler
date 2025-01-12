@@ -19,6 +19,15 @@ void RegAllocator::RegAlloc() {
 }
 
 void RegAllocator::RegAllocMain() {
+    // 清空状态
+    simplify_worklist_.Clear();
+    freeze_worklist_.Clear();
+    spill_worklist_.Clear();
+    spilled_nodes_.Clear();
+    coalesced_nodes_.Clear();
+    colored_nodes_.Clear();
+    select_stack_.Clear();
+
     // 构造控制流图
     auto flowgraph = BuildCFG();
     fg::FGraph::Show(stdout, flowgraph->Nodes(), [](assem::Instr *instr) {
@@ -37,8 +46,12 @@ void RegAllocator::RegAllocMain() {
     });
     
     // 初始化相干图中precolored_和initial_
+    precolored_.Clear();
+    initial_.Clear();
     for(auto node: live_graph_nodes) {
         if(reg_manager->Registers()->Contain(node->NodeInfo())) {
+            precolored_.Append(node);
+        } else if(node->NodeInfo() == reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)) {
             precolored_.Append(node);
         } else {
             initial_.Append(node);
@@ -53,6 +66,7 @@ void RegAllocator::RegAllocMain() {
 
 
     // 初始化adj_set_
+    adj_set_.clear();
     for(auto node: live_graph_nodes) {
         auto adj_nodes = node->Adj()->GetList();
         for(auto adj_node: adj_nodes) {
@@ -63,6 +77,10 @@ void RegAllocator::RegAllocMain() {
     }
 
     // 初始化degree_map_和move_list_map_和alias_map_和color_map_
+    degree_map_.clear();
+    move_list_map_.clear();
+    alias_map_.clear();
+    color_map_.clear();
     for(auto node: live_graph_nodes) {
         degree_map_.insert({node, node->Degree()});
         move_list_map_.insert({node, new live::MoveList()});
@@ -102,7 +120,7 @@ void RegAllocator::RegAllocMain() {
     if(spilled_nodes_.GetList().size() > 0) {
         RewriteProgram();
         // 尾递归
-        RegAlloc();
+        RegAllocMain();
     }
 }
 
@@ -422,11 +440,11 @@ void RegAllocator::RewriteProgram() {
             auto instr = *iter;
             auto use = instr->Use();
             auto def = instr->Def();
-            if(use->Contain(spilled_node->NodeInfo())) {
+            if(use && use->Contain(spilled_node->NodeInfo())) {
                 auto new_temp = temp::TempFactory::NewTemp();
                 instr_list->Insert(iter, new assem::OperInstr(
                     // TODO: 修改为正确的偏移
-                    "movq `100(`s0),`d0",
+                    "movq 100(`s0),`d0",
                     new temp::TempList(new_temp),
                     new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)),
                     nullptr
@@ -440,10 +458,10 @@ void RegAllocator::RewriteProgram() {
                 }
             }
 
-            if(def->Contain(spilled_node->NodeInfo())) {
+            if(def && def->Contain(spilled_node->NodeInfo())) {
                 auto new_temp = temp::TempFactory::NewTemp();
                 instr_list->Insert(std::next(iter), new assem::OperInstr(
-                    "movq `s0,`100(`s1)",
+                    "movq `s0,100(`s1)",
                     nullptr,
                     new temp::TempList({new_temp, reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)}),
                     nullptr

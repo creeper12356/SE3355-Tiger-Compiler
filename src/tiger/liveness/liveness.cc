@@ -121,6 +121,7 @@ void LiveGraphFactory::InterfGraph() {
   // 添加相干图边
   for(const auto &instr_node: instr_nodes) {
     auto out = out_->Look(instr_node)->GetList();
+    // out集合的互相干涉
     for(auto iter = out.begin(); iter != out.end(); ++ iter) {
       for(auto iter2 = std::next(iter); iter2 != out.end(); ++ iter2) {
         // 排除move指令的干涉情况
@@ -132,8 +133,31 @@ void LiveGraphFactory::InterfGraph() {
             continue;
           }
         }
+        
+        auto u = temp_node_map_->Look(*iter);
+        auto v = temp_node_map_->Look(*iter2);
+        if(u->GoesTo(v) || v->GoesTo(u)) {
+          continue;
+        }
 
-        live_graph_.interf_graph->AddEdge(temp_node_map_->Look(*iter), temp_node_map_->Look(*iter2));
+        live_graph_.interf_graph->AddEdge(u, v);
+      }
+    }
+
+    // def和out集合的干涉
+    // NOTE: 对于call指令是必要的，因为call指令会修改所有callee-save寄存器
+    if(auto oper_instr = dynamic_cast<assem::OperInstr *>(instr_node->NodeInfo())) {
+      auto def = instr_node->NodeInfo()->Def() ? instr_node->NodeInfo()->Def()->GetList() : std::list<temp::Temp *>();
+      for(auto &def_temp: def) {
+        for(auto &out_temp: out) {
+          auto u = temp_node_map_->Look(def_temp);
+          auto v = temp_node_map_->Look(out_temp);
+          if(u->GoesTo(v) || v->GoesTo(u)) {
+            continue;
+          }
+
+          live_graph_.interf_graph->AddEdge(u, v);
+        }
       }
     }
   }
