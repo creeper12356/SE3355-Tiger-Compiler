@@ -464,19 +464,11 @@ void RegAllocator::AssignColors() {
 
 void RegAllocator::RewriteProgram() {
     auto instr_list = assem_instr_->GetInstrList();
-    auto spilled_nodes = spilled_nodes_.GetList();
-    std::map<live::INodePtr, int> spill_offset_map;
-    int cur_spill_offset = 8 * 8;
-    for(auto spilled_node: spilled_nodes) {
-        spill_offset_map.insert({spilled_node, cur_spill_offset});
-        cur_spill_offset += 8;
-    }
-    // NOTE: 假定所有函数参数都不超过6个，预留至少64字节的空间
-    frame_info_map[function_name_].second = frame_info_map[function_name_].second < 64 ? 64 : frame_info_map[function_name_].second;
-    frame_info_map[function_name_].second += spilled_nodes.size() * 8;
+    
 
     auto new_spilled_nodes = new live::INodeList();
     auto coalesced_nodes = coalesced_nodes_.GetList();
+    auto spilled_nodes = spilled_nodes_.GetList();
     for(auto spilled_node: spilled_nodes) {
         std::list<live::INodePtr> candidates;
         candidates.push_back(spilled_node);
@@ -496,8 +488,19 @@ void RegAllocator::RewriteProgram() {
     }
     spilled_nodes = new_spilled_nodes->GetList();
 
+    std::map<live::INodePtr, int> spill_offset_map;
+    int cur_spill_offset = 8 * 8;
+    for(auto spilled_node: spilled_nodes) {
+        spill_offset_map.insert({spilled_node, cur_spill_offset});
+        cur_spill_offset += 8;
+    }
+    // NOTE: 假定所有函数参数都不超过6个，预留至少64字节的空间
+    frame_info_map[function_name_].second = frame_info_map[function_name_].second < 64 ? 64 : frame_info_map[function_name_].second;
+    frame_info_map[function_name_].second += spilled_nodes.size() * 8;
+
     for(auto spilled_node: spilled_nodes) {
         int spill_offset = spill_offset_map[spilled_node];
+        assert(spill_offset);
         for(auto iter = instr_list->GetList().begin(); iter != instr_list->GetList().end(); ++iter) {
             auto instr = *iter;
             auto use = instr->Use();
