@@ -495,8 +495,7 @@ void RegAllocator::RewriteProgram() {
         cur_spill_offset += 8;
     }
     // NOTE: 假定所有函数参数都不超过6个，预留至少64字节的空间
-    frame_info_map[function_name_].second = frame_info_map[function_name_].second < 64 ? 64 : frame_info_map[function_name_].second;
-    frame_info_map[function_name_].second += spilled_nodes.size() * 8;
+    frame_info_map[function_name_].second += (spilled_nodes.size() * 8 + 64);
 
     for(auto spilled_node: spilled_nodes) {
         int spill_offset = spill_offset_map[spilled_node];
