@@ -194,10 +194,12 @@ void RegAllocator::DecrementDegree(live::INodePtr node) {
         neighbor_nodes->Append(node);
         EnableMoves(neighbor_nodes);
         spill_worklist_.DeleteNode(node);
-        if(MoveRelated(node)) {
-            freeze_worklist_ = *freeze_worklist_.Union(node);
-        } else {
-            simplify_worklist_ = *simplify_worklist_.Union(node);
+        if(!precolored_.Contain(node)) {
+            if(MoveRelated(node)) {
+                freeze_worklist_ = *freeze_worklist_.Union(node);
+            } else {
+                simplify_worklist_ = *simplify_worklist_.Union(node);
+            }
         }
     }
 }
@@ -265,7 +267,7 @@ void RegAllocator::Coalesce() {
             Combine(u, v);
             AddWorkList(u);
         }
-    } else if(!precolored_.Contain(v) && Conservative(Adjacent(u)->Union(Adjacent(v)))) {
+    } else if(!precolored_.Contain(u) && Conservative(Adjacent(u)->Union(Adjacent(v)))) {
         // Same
         auto new_move_list = new live::MoveList();
         new_move_list->Append(move.first, move.second);
@@ -466,7 +468,7 @@ void RegAllocator::RewriteProgram() {
 
 live::INodeListPtr RegAllocator::Adjacent(live::INodePtr node) {
     // NOTE: 需要去除precolored_中的节点
-    return node->Adj()->Diff(select_stack_.Union(&coalesced_nodes_))->Diff(&precolored_);
+    return node->Adj()->Diff(select_stack_.Union(&coalesced_nodes_));
 }
 
 live::MoveList *RegAllocator::NodeMoves(live::INodePtr node) {
