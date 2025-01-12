@@ -441,12 +441,13 @@ void RegAllocator::RewriteProgram() {
     auto instr_list = assem_instr_->GetInstrList();
     auto spilled_nodes = spilled_nodes_.GetList();
     std::map<live::INodePtr, int> spill_offset_map;
-    int cur_spill_offset = 0;
+    int cur_spill_offset = 8 * 8;
     for(auto spilled_node: spilled_nodes) {
         spill_offset_map.insert({spilled_node, cur_spill_offset});
         cur_spill_offset += 8;
     }
-    frame_info_map[code_].second += cur_spill_offset;
+    // NOTE: 假定所有函数参数都不超过6个，预留至少48字节的空间
+    frame_info_map[function_name_].second += cur_spill_offset + 6 * 8;
 
     for(auto spilled_node: spilled_nodes) {
         int spill_offset = spill_offset_map[spilled_node];

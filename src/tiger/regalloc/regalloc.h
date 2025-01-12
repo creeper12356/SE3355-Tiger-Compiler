@@ -31,8 +31,9 @@ class RegAllocator {
 public:
     // ra::RegAllocator reg_allocator(body_->getName().str(),
                                   //  std::move(assem_instr));
-  RegAllocator(std::string code, std::unique_ptr<cg::AssemInstr> assem_instr)
-      : code_(code), assem_instr_(std::move(assem_instr)) {}
+  RegAllocator(std::string function_name, std::unique_ptr<cg::AssemInstr> assem_instr)
+      : function_name_(function_name), 
+      assem_instr_(std::move(assem_instr)) {}
   void RegAlloc();
   std::unique_ptr<ra::Result> TransferResult();
   
@@ -62,7 +63,7 @@ private:
   bool MoveRelated(live::INodePtr node) ;
 
 private:
-  std::string code_;
+  std::string function_name_;
   std::unique_ptr<cg::AssemInstr> assem_instr_;
   std::unique_ptr<ra::Result> result_;
 
