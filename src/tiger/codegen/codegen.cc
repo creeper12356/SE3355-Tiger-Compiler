@@ -693,7 +693,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
 
         auto condition_temp = temp_map_->at(condition);
         instr_list->Append(new assem::OperInstr(
-          "cmpq $1,`s0",
+          "cmpq $0,`s0",
           nullptr,
           new temp::TempList(condition_temp),
           nullptr
@@ -706,7 +706,7 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
           nullptr
         ));
         instr_list->Append(new assem::OperInstr(
-          "je " + std::string(true_label->getName()),
+          "jne " + std::string(true_label->getName()),
           nullptr,
           nullptr,
           new assem::Targets(new std::vector<temp::Label *>{temp::LabelFactory::NamedLabel(true_label->getName())})
