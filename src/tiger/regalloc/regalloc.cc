@@ -436,6 +436,8 @@ void RegAllocator::RewriteProgram() {
     auto instr_list = assem_instr_->GetInstrList();
     auto spilled_nodes = spilled_nodes_.GetList();
     for(auto spilled_node: spilled_nodes) {
+        int spill_mem_offset = frame_info_map[code_].second;
+        frame_info_map[code_].second += 8;
         for(auto iter = instr_list->GetList().begin(); iter != instr_list->GetList().end(); ++iter) {
             auto instr = *iter;
             auto use = instr->Use();
@@ -443,8 +445,7 @@ void RegAllocator::RewriteProgram() {
             if(use && use->Contain(spilled_node->NodeInfo())) {
                 auto new_temp = temp::TempFactory::NewTemp();
                 instr_list->Insert(iter, new assem::OperInstr(
-                    // TODO: 修改为正确的偏移
-                    "movq 100(`s0),`d0",
+                    "movq " + std::to_string(spill_mem_offset) + "(`s0),`d0",
                     new temp::TempList(new_temp),
                     new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)),
                     nullptr
@@ -461,7 +462,7 @@ void RegAllocator::RewriteProgram() {
             if(def && def->Contain(spilled_node->NodeInfo())) {
                 auto new_temp = temp::TempFactory::NewTemp();
                 instr_list->Insert(std::next(iter), new assem::OperInstr(
-                    "movq `s0,100(`s1)",
+                    "movq `s0," + std::to_string(spill_mem_offset) + "(`s1)",
                     nullptr,
                     new temp::TempList({new_temp, reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)}),
                     nullptr
