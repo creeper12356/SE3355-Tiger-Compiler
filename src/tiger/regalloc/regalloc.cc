@@ -35,6 +35,30 @@ void RegAllocator::RegAllocMain() {
         instr->Print(stdout, map);
     });
 
+    use_def_cnt_map.clear();
+    auto flowgraph_nodes = flowgraph->Nodes()->GetList();
+    for(auto instr: flowgraph_nodes) {
+        auto use = instr->NodeInfo()->Use();
+        auto def = instr->NodeInfo()->Def();
+
+        if(use) {
+            for(auto temp: use->GetList()) {
+                if(use_def_cnt_map.find(temp) == use_def_cnt_map.end()) {
+                    use_def_cnt_map[temp] = 0;
+                }
+                use_def_cnt_map[temp] += 1;
+            }
+        }
+        if(def) {
+            for(auto temp: def->GetList()) {
+                if(use_def_cnt_map.find(temp) == use_def_cnt_map.end()) {
+                    use_def_cnt_map[temp] = 0;
+                }
+                use_def_cnt_map[temp] += 1;
+            }
+        }
+    }
+
     // 根据控制流图，构造活跃相干图
     live::LiveGraphFactory live_graph_factory(flowgraph);
     live_graph_factory.Liveness();
@@ -394,12 +418,13 @@ void RegAllocator::FreezeMoves(live::INodePtr node) {
 }
 
 void RegAllocator::SelectSpill() {
-    // TODO: 启发式选择一个溢出节点
     auto spill_worklist = spill_worklist_.GetList();
     spill_worklist.sort([this](live::INodePtr a, live::INodePtr b) {
-        return degree_map_[a] > degree_map_[b];
+        float heuristic_a = use_def_cnt_map[a->NodeInfo()] / (degree_map_[a] * 1.0);
+        float heuristic_b = use_def_cnt_map[b->NodeInfo()] / (degree_map_[b] * 1.0);
+        return heuristic_a < heuristic_b;
     });
-    // 选取度数最大的节点为溢出节点
+    // 选取启发最小的节点
     auto node = spill_worklist.front();
     spill_worklist_.DeleteNode(node);
     simplify_worklist_ = *simplify_worklist_.Union(node);
@@ -446,9 +471,30 @@ void RegAllocator::RewriteProgram() {
         spill_offset_map.insert({spilled_node, cur_spill_offset});
         cur_spill_offset += 8;
     }
-    // NOTE: 假定所有函数参数都不超过6个，预留至少48字节的空间
+    // NOTE: 假定所有函数参数都不超过6个，预留至少64字节的空间
     frame_info_map[function_name_].second = frame_info_map[function_name_].second < 64 ? 64 : frame_info_map[function_name_].second;
-    frame_info_map[function_name_].second += cur_spill_offset;
+    frame_info_map[function_name_].second += spilled_nodes.size() * 8;
+
+    auto new_spilled_nodes = new live::INodeList();
+    auto coalesced_nodes = coalesced_nodes_.GetList();
+    for(auto spilled_node: spilled_nodes) {
+        std::list<live::INodePtr> candidates;
+        candidates.push_back(spilled_node);
+        for(auto coalesced_node: coalesced_nodes) {
+            if(GetAlias(coalesced_node) == spilled_node) {
+                candidates.push_back(coalesced_node);
+            }
+        }
+
+        candidates.sort([this](live::INodePtr a, live::INodePtr b) {
+            float heuristic_a = use_def_cnt_map[a->NodeInfo()] / (a->Degree() * 1.0);
+            float heuristic_b = use_def_cnt_map[b->NodeInfo()] / (b->Degree() * 1.0);
+            return heuristic_a < heuristic_b;
+        });
+        // 选取启发最小的节点
+        new_spilled_nodes->Append(candidates.front());
+    }
+    spilled_nodes = new_spilled_nodes->GetList();
 
     for(auto spilled_node: spilled_nodes) {
         int spill_offset = spill_offset_map[spilled_node];

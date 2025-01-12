@@ -150,6 +150,9 @@ void LiveGraphFactory::InterfGraph() {
       auto def = instr_node->NodeInfo()->Def() ? instr_node->NodeInfo()->Def()->GetList() : std::list<temp::Temp *>();
       for(auto &def_temp: def) {
         for(auto &out_temp: out) {
+          if(def_temp == out_temp) {
+            continue;
+          }
           auto u = temp_node_map_->Look(def_temp);
           auto v = temp_node_map_->Look(out_temp);
           if(u->GoesTo(v) || v->GoesTo(u)) {

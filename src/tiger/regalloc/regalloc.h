@@ -93,6 +93,8 @@ private:
   std::map<live::INodePtr, live::INodePtr> alias_map_;
   std::map<live::INodePtr, temp::Temp *> color_map_;
 
+  std::map<temp::Temp *, int> use_def_cnt_map;
+
 };
 
 } // namespace ra
