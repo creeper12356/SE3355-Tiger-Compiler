@@ -372,10 +372,17 @@ void CodeGen::InstrSel(assem::InstrList *instr_list, llvm::Instruction &inst,
       ));
       if(auto const_int = llvm::dyn_cast<llvm::ConstantInt>(inst.getOperand(1))) {
         // op1: immediate
+        auto const_temp = temp::TempFactory::NewTemp();
         instr_list->Append(new assem::OperInstr(
-          "idivq $" + std::to_string(const_int->getSExtValue()),
+          "movq $" + std::to_string(const_int->getSExtValue()) + ",`d0",
+          new temp::TempList(const_temp),
+          nullptr,
+          nullptr
+        ));
+        instr_list->Append(new assem::OperInstr(
+          "idivq `s0",
           new temp::TempList({reg_manager->GetRegister(frame::X64RegManager::Reg::RAX), reg_manager->GetRegister(frame::X64RegManager::Reg::RDX)}),
-          new temp::TempList({reg_manager->GetRegister(frame::X64RegManager::Reg::RAX), reg_manager->GetRegister(frame::X64RegManager::Reg::RDX)}),
+          new temp::TempList({const_temp, reg_manager->GetRegister(frame::X64RegManager::Reg::RAX), reg_manager->GetRegister(frame::X64RegManager::Reg::RDX)}),
           nullptr
         ));
       } else {

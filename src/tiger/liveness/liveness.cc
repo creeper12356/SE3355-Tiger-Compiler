@@ -74,25 +74,25 @@ void LiveGraphFactory::LiveMap() {
     }
   } while(!is_stable);
   
-  in_->Dump([](fg::FNodePtr node, temp::TempList *tl) {
-    auto map = temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name());
-    node->NodeInfo()->Print(stdout, map);
-    printf("in: ");
-    for(auto temp: tl->GetList()) {
-      printf("%s ", map->Look(temp)->c_str());
-    }
-    printf("\n\n");
-  });
+  // in_->Dump([](fg::FNodePtr node, temp::TempList *tl) {
+  //   auto map = temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name());
+  //   node->NodeInfo()->Print(stdout, map);
+  //   printf("in: ");
+  //   for(auto temp: tl->GetList()) {
+  //     printf("%s ", map->Look(temp)->c_str());
+  //   }
+  //   printf("\n\n");
+  // });
 
-  out_->Dump([](fg::FNodePtr node, temp::TempList *tl) {
-    auto map = temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name());
-    node->NodeInfo()->Print(stdout, map);
-    printf("out: ");
-    for(auto temp: tl->GetList()) {
-      printf("%s ", map->Look(temp)->c_str());
-    }
-    printf("\n\n");
-  });
+  // out_->Dump([](fg::FNodePtr node, temp::TempList *tl) {
+  //   auto map = temp::Map::LayerMap(reg_manager->temp_map_, temp::Map::Name());
+  //   node->NodeInfo()->Print(stdout, map);
+  //   printf("out: ");
+  //   for(auto temp: tl->GetList()) {
+  //     printf("%s ", map->Look(temp)->c_str());
+  //   }
+  //   printf("\n\n");
+  // });
 }
 
 void LiveGraphFactory::InterfGraph() {
