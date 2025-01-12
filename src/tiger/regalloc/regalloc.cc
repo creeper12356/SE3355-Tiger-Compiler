@@ -395,7 +395,12 @@ void RegAllocator::FreezeMoves(live::INodePtr node) {
 
 void RegAllocator::SelectSpill() {
     // TODO: 启发式选择一个溢出节点
-    auto node = spill_worklist_.GetList().back();
+    auto spill_worklist = spill_worklist_.GetList();
+    spill_worklist.sort([this](live::INodePtr a, live::INodePtr b) {
+        return degree_map_[a] > degree_map_[b];
+    });
+    // 选取度数最大的节点为溢出节点
+    auto node = spill_worklist.front();
     spill_worklist_.DeleteNode(node);
     simplify_worklist_ = *simplify_worklist_.Union(node);
     FreezeMoves(node);
@@ -435,9 +440,16 @@ void RegAllocator::AssignColors() {
 void RegAllocator::RewriteProgram() {
     auto instr_list = assem_instr_->GetInstrList();
     auto spilled_nodes = spilled_nodes_.GetList();
+    std::map<live::INodePtr, int> spill_offset_map;
+    int cur_spill_offset = 0;
     for(auto spilled_node: spilled_nodes) {
-        int spill_mem_offset = frame_info_map[code_].second;
-        frame_info_map[code_].second += 8;
+        spill_offset_map.insert({spilled_node, cur_spill_offset});
+        cur_spill_offset += 8;
+    }
+    frame_info_map[code_].second += cur_spill_offset;
+
+    for(auto spilled_node: spilled_nodes) {
+        int spill_offset = spill_offset_map[spilled_node];
         for(auto iter = instr_list->GetList().begin(); iter != instr_list->GetList().end(); ++iter) {
             auto instr = *iter;
             auto use = instr->Use();
@@ -445,11 +457,12 @@ void RegAllocator::RewriteProgram() {
             if(use && use->Contain(spilled_node->NodeInfo())) {
                 auto new_temp = temp::TempFactory::NewTemp();
                 instr_list->Insert(iter, new assem::OperInstr(
-                    "movq " + std::to_string(spill_mem_offset) + "(`s0),`d0",
+                    "movq " + std::to_string(spill_offset) + "(`s0),`d0",
                     new temp::TempList(new_temp),
                     new temp::TempList(reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)),
                     nullptr
                 ));
+
                 if(auto oper_instr = dynamic_cast<assem::OperInstr *>(instr)) {
                     oper_instr->src_->Replace(spilled_node->NodeInfo(), new_temp);
                 } else if(auto move_instr = dynamic_cast<assem::MoveInstr *>(instr)) {
@@ -462,11 +475,12 @@ void RegAllocator::RewriteProgram() {
             if(def && def->Contain(spilled_node->NodeInfo())) {
                 auto new_temp = temp::TempFactory::NewTemp();
                 instr_list->Insert(std::next(iter), new assem::OperInstr(
-                    "movq `s0," + std::to_string(spill_mem_offset) + "(`s1)",
+                    "movq `s0," + std::to_string(spill_offset) + "(`s1)",
                     nullptr,
                     new temp::TempList({new_temp, reg_manager->GetRegister(frame::X64RegManager::Reg::RSP)}),
                     nullptr
                 ));
+
                 if(auto oper_instr = dynamic_cast<assem::OperInstr *>(instr)) {
                     oper_instr->dst_->Replace(spilled_node->NodeInfo(), new_temp);
                 } else if(auto move_instr = dynamic_cast<assem::MoveInstr *>(instr)) {
